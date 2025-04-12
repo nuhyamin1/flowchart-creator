@@ -8,8 +8,12 @@ const toolbar = document.getElementById('toolbar');
 const colorPicker = document.getElementById('colorPicker');
 const savePngButton = document.getElementById('savePng');
 const saveJpgButton = document.getElementById('saveJpg');
+// Removed undoButton and redoButton references
 
 let shapes = []; // Array to hold all shape objects
+let history = []; // For Undo/Redo
+let redoStack = []; // For Undo/Redo
+let historyIndex = -1; // Current position in history
 let selectedShape = null;
 let isDragging = false;
 let dragOffsetX, dragOffsetY; // Offset from shape origin to mouse click
@@ -39,6 +43,12 @@ class Shape {
     isInside(mouseX, mouseY) { throw new Error("isInside method must be implemented"); }
     // NEW: Method to get resize handles (returns array of handle objects)
     getHandles() { return []; } // Default: no handles
+
+    // Helper for deep cloning shapes for history
+    clone() {
+        // Basic clone, might need more specific logic if shapes get complex
+        return Object.assign(Object.create(Object.getPrototypeOf(this)), this);
+    }
 }
 
 class Rectangle extends Shape {
@@ -218,7 +228,11 @@ class Line extends Shape {
     getHandles() {
         return [];
     }
-}
+
+    clone() { // Add the correct clone method here
+        return new Line(this.x1, this.y1, this.x2, this.y2, this.color);
+    }
+} // Correctly close the Line class
 
 
 // --- NEW Helper Function to get handle at mouse position ---
@@ -255,6 +269,65 @@ function getCursorForHandle(handleType) {
             return 'move'; // Default for shape body
     }
 }
+
+// --- Undo/Redo Functions ---
+function saveState() {
+    // Clear redo stack whenever a new action is taken
+    redoStack = [];
+    // Deep copy the current shapes array
+    const currentState = shapes.map(shape => shape.clone());
+    // Remove future states if we undid previously
+    history = history.slice(0, historyIndex + 1);
+    // Add the new state
+    history.push(currentState);
+    historyIndex++;
+    // updateUndoRedoButtons(); // Removed call
+    console.log(`State saved. History length: ${history.length}, Index: ${historyIndex}`);
+}
+
+function undo() {
+    if (historyIndex <= 0) {
+        console.log("Cannot undo further.");
+        return; // Nothing to undo or only initial state left
+    }
+    // Move current state to redo stack (deep copy)
+    const currentStateForRedo = shapes.map(shape => shape.clone());
+    redoStack.push(currentStateForRedo);
+
+    // Go back one step in history
+    historyIndex--;
+    // Restore the previous state (deep copy)
+    shapes = history[historyIndex].map(shapeData => shapeData.clone()); // Need to clone again when restoring
+    selectedShape = null; // Deselect after undo/redo
+    redrawCanvas();
+    // updateUndoRedoButtons(); // Removed call
+    console.log(`Undo performed. History index: ${historyIndex}`);
+}
+
+function redo() {
+    if (redoStack.length === 0) {
+        console.log("Cannot redo.");
+        return; // Nothing to redo
+    }
+    // Move current state back to history (deep copy)
+    const currentStateForHistory = shapes.map(shape => shape.clone());
+    // Ensure history is correctly sliced if we were at an earlier point
+    history = history.slice(0, historyIndex + 1);
+    history.push(currentStateForHistory);
+    historyIndex++;
+
+
+    // Restore the next state from redo stack (deep copy)
+    const nextState = redoStack.pop();
+    shapes = nextState.map(shapeData => shapeData.clone()); // Need to clone again when restoring
+    selectedShape = null; // Deselect after undo/redo
+    redrawCanvas();
+    // updateUndoRedoButtons(); // Removed call
+    console.log(`Redo performed. History index: ${historyIndex}`);
+}
+
+// Removed updateUndoRedoButtons function
+
 
 // --- Canvas Redraw ---
 function redrawCanvas() {
@@ -352,13 +425,14 @@ toolbar.addEventListener('click', (e) => {
     }
 });
 
-// Color selection (Unchanged)
+// Color selection
 colorPicker.addEventListener('input', (e) => {
      currentColor = e.target.value;
      console.log(`Selected color: ${currentColor}`);
      if (selectedShape) {
          selectedShape.color = currentColor;
          redrawCanvas();
+         saveState(); // Save state after color change
      }
  });
 
@@ -467,6 +541,7 @@ canvas.addEventListener('mousedown', (e) => {
                  shapes.push(newShape);
                  selectedShape = newShape; // Select the new shape
                  console.log('Added new shape:', newShape);
+                 saveState(); // Save state after adding shape
              } else {
                  // This case might not be reachable if default is handled above
                  console.log('Clicked background, deselected shape (no tool active?).');
@@ -633,11 +708,14 @@ canvas.addEventListener('mousemove', (e) => {
 });
 
 canvas.addEventListener('mouseup', (e) => {
+    let stateChanged = false; // Flag to check if we need to save state
+
     // Finalize resizing
     if (isResizing) {
         console.log('Finished resizing shape:', selectedShape);
         isResizing = false;
         activeHandle = null;
+        stateChanged = true; // Resizing changes state
         redrawCanvas(); // Redraw without handles if mouse moved off canvas during resize
     }
 
@@ -645,6 +723,7 @@ canvas.addEventListener('mouseup', (e) => {
     if (isDragging) {
         console.log('Finished dragging shape:', selectedShape);
         isDragging = false;
+        stateChanged = true; // Dragging changes state
     }
 
     // Finalize line drawing
@@ -656,12 +735,18 @@ canvas.addEventListener('mouseup', (e) => {
             const newLine = new Line(lineStartX, lineStartY, mouseX, mouseY, currentColor);
             shapes.push(newLine);
             console.log('Added new line:', newLine);
+            stateChanged = true; // Adding a line changes state
              // selectedShape = newLine; // Optionally select
         } else {
              console.log('Line drawing cancelled (start=end).');
          }
         isDrawingLine = false;
         redrawCanvas();
+    }
+
+    // Save state if any action modified shapes
+    if (stateChanged) {
+        saveState();
     }
 
      // Ensure cursor resets if mouseup happens outside canvas or over UI elements
@@ -711,8 +796,24 @@ document.addEventListener('keydown', (e) => {
              console.log("Resizing cancelled by delete key.");
          }
         redrawCanvas();
+        saveState(); // Save state after deleting
     }
 });
+
+
+// --- Listen for Menu Actions via Preload ---
+if (window.electronAPI) {
+  window.electronAPI.onUndo(() => {
+    console.log('Undo action triggered from menu.');
+    undo();
+  });
+  window.electronAPI.onRedo(() => {
+    console.log('Redo action triggered from menu.');
+    redo();
+  });
+} else {
+  console.error('electronAPI not found on window. Check preload script.');
+}
 
 
 // --- Save Functionality --- (Keep existing save functions)
@@ -742,9 +843,11 @@ savePngButton.addEventListener('click', () => { saveCanvasToFile('png'); });
 saveJpgButton.addEventListener('click', () => { saveCanvasToFile('jpg'); });
 
 
-// --- Initial Draw ---
+// --- Initial Draw & State ---
 canvas.style.backgroundColor = '#f0f0f0';
 colorPicker.value = currentColor;
+saveState(); // Save the initial empty state
 redrawCanvas();
+// updateUndoRedoButtons(); // Removed call
 console.log('Renderer process loaded.');
 document.querySelector('.shape[data-shape="rectangle"]').classList.add('selected');
