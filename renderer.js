@@ -450,8 +450,8 @@ canvas.addEventListener('mousedown', (e) => {
         const circleCenterX = mouseX;
         const circleCenterY = mouseY;
 
-        // Only add shape if a shape tool (not line) is selected
-        if (currentShapeType !== 'line') {
+        // Only add shape if a shape tool (not line or default) is selected
+        if (currentShapeType !== 'line' && currentShapeType !== 'default') {
              switch (currentShapeType) {
                  case 'rectangle':
                      newShape = new Rectangle(shapeX, shapeY, defaultWidth, defaultHeight, currentColor);
@@ -468,11 +468,12 @@ canvas.addEventListener('mousedown', (e) => {
                  selectedShape = newShape; // Select the new shape
                  console.log('Added new shape:', newShape);
              } else {
-                 console.log('Clicked background, deselected shape.');
+                 // This case might not be reachable if default is handled above
+                 console.log('Clicked background, deselected shape (no tool active?).');
              }
         } else {
-             // If line tool is active and clicked background, just deselect
-             console.log('Clicked background with line tool, deselected shape.');
+             // If line or default tool is active and clicked background, just deselect
+             console.log(`Clicked background with ${currentShapeType} tool, deselected shape.`);
         }
         redrawCanvas();
     }
@@ -615,8 +616,11 @@ canvas.addEventListener('mousemove', (e) => {
                  cursor = 'move'; // Indicate shape is draggable
              } else if (currentShapeType === 'line') {
                  cursor = 'crosshair'; // For drawing new line
+             } else if (currentShapeType === 'default') {
+                 cursor = 'default'; // Explicitly default for the default tool
              } else {
-                 cursor = 'default';
+                 // For other shape tools when not hovering over anything
+                 cursor = 'crosshair'; // Or 'default', depending on desired behavior
              }
         }
     }
