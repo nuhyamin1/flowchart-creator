@@ -2,7 +2,6 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <!-- https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP -->
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'">
     <meta http-equiv="X-Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'">
     <title>Flowchart App</title>
@@ -16,12 +15,9 @@
         <div class="shape" data-shape="rectangle">Rectangle</div>
         <div class="shape" data-shape="circle">Circle</div>
         <div class="shape" data-shape="diamond">Diamond</div>
-        <!-- Add more shapes as needed -->
-
+        <div class="shape" data-shape="line">Line</div>
         <h2>Colors</h2>
-        <input type="color" id="colorPicker" value="#ffffff">
-
-        <h2>Actions</h2>
+        <input type="color" id="colorPicker" value="#ffffff"> <h2>Actions</h2>
         <button id="savePng">Save as PNG</button>
         <button id="saveJpg">Save as JPG</button>
     </div>
@@ -30,7 +26,6 @@
         <canvas id="flowchartCanvas" width="600" height="400"></canvas>
     </div>
 
-    <!-- You can also require other files to run in this process -->
     <script src="./renderer.js"></script>
 </body>
 </html>
