@@ -1,0 +1,76 @@
+body {
+    font-family: sans-serif;
+    display: flex;
+    height: 100vh;
+    margin: 0;
+    overflow: hidden; /* Prevent body scrollbars */
+}
+
+#toolbar {
+    width: 150px;
+    padding: 15px;
+    border-right: 1px solid #ccc;
+    background-color: #f8f8f8;
+    overflow-y: auto; /* Allow toolbar scrolling if content overflows */
+}
+
+#toolbar h2 {
+    margin-top: 0;
+    margin-bottom: 10px;
+    font-size: 1em;
+    border-bottom: 1px solid #eee;
+    padding-bottom: 5px;
+}
+
+#toolbar .shape {
+    padding: 8px;
+    margin-bottom: 5px;
+    border: 1px solid #ddd;
+    border-radius: 3px;
+    cursor: pointer;
+    text-align: center;
+    background-color: #fff;
+    user-select: none; /* Prevent text selection */
+}
+
+#toolbar .shape:hover {
+    background-color: #eee;
+}
+
+#toolbar .shape.selected {
+    border-color: #007bff;
+    background-color: #e7f3ff;
+    font-weight: bold;
+}
+
+
+#toolbar input[type="color"] {
+    width: 100%;
+    margin-bottom: 15px;
+    box-sizing: border-box; /* Include padding/border in width */
+}
+
+#toolbar button {
+    display: block;
+    width: 100%;
+    padding: 8px;
+    margin-bottom: 10px;
+    cursor: pointer;
+}
+
+
+#canvas-container {
+    flex-grow: 1; /* Take remaining space */
+    padding: 15px;
+    display: flex; /* Center canvas if needed, or manage layout */
+    justify-content: center; /* Example: Center horizontally */
+    align-items: flex-start; /* Example: Align top */
+    overflow: auto; /* Allow scrolling if canvas is larger than container */
+    background-color: #e9e9e9; /* Light grey background for canvas area */
+}
+
+#flowchartCanvas {
+    border: 1px solid #aaa;
+    background-color: #fff; /* White background for the drawing area */
+    /* Add max-width/max-height if needed, or let it be defined by width/height attributes */
+}
