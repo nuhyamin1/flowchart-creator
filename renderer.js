@@ -9,43 +9,106 @@ const colorPicker = document.getElementById('colorPicker');
 const savePngButton = document.getElementById('savePng');
 const saveJpgButton = document.getElementById('saveJpg');
 
-let shapes = []; // Array to hold all shapes on the canvas
+let shapes = []; // Array to hold all shape objects
 let selectedShape = null;
 let isDragging = false;
-let dragStartX, dragStartY;
+let dragOffsetX, dragOffsetY; // Offset from shape origin to mouse click
 let currentShapeType = 'rectangle'; // Default shape
 let currentColor = '#ffffff'; // Default color
 
-// --- Shape Drawing Functions ---
+// --- Shape Classes ---
 
-function drawRectangle(x, y, width, height, color) {
-    ctx.fillStyle = color;
-    ctx.fillRect(x, y, width, height);
-    ctx.strokeStyle = '#000000'; // Black border
-    ctx.strokeRect(x, y, width, height);
+class Shape {
+    constructor(x, y, color) {
+        this.x = x;
+        this.y = y;
+        this.color = color;
+    }
+
+    // Abstract methods - to be implemented by subclasses
+    draw(ctx) {
+        throw new Error("Draw method must be implemented by subclass");
+    }
+
+    isInside(mouseX, mouseY) {
+        throw new Error("isInside method must be implemented by subclass");
+    }
 }
 
-function drawCircle(x, y, radius, color) {
-    ctx.fillStyle = color;
-    ctx.beginPath();
-    ctx.arc(x, y, radius, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = '#000000';
-    ctx.stroke();
+class Rectangle extends Shape {
+    constructor(x, y, width, height, color) {
+        super(x, y, color);
+        this.width = width;
+        this.height = height;
+        this.type = 'rectangle';
+    }
+
+    draw(ctx) {
+        ctx.fillStyle = this.color;
+        ctx.fillRect(this.x, this.y, this.width, this.height);
+        ctx.strokeStyle = '#000000'; // Black border
+        ctx.strokeRect(this.x, this.y, this.width, this.height);
+    }
+
+    isInside(mouseX, mouseY) {
+        return mouseX >= this.x && mouseX <= this.x + this.width &&
+               mouseY >= this.y && mouseY <= this.y + this.height;
+    }
 }
 
-function drawDiamond(x, y, width, height, color) {
-    ctx.fillStyle = color;
-    ctx.beginPath();
-    ctx.moveTo(x + width / 2, y); // Top point
-    ctx.lineTo(x + width, y + height / 2); // Right point
-    ctx.lineTo(x + width / 2, y + height); // Bottom point
-    ctx.lineTo(x, y + height / 2); // Left point
-    ctx.closePath();
-    ctx.fill();
-    ctx.strokeStyle = '#000000';
-    ctx.stroke();
+class Circle extends Shape {
+    constructor(x, y, radius, color) {
+        super(x, y, color); // Circle's x, y is the center
+        this.radius = radius;
+        this.type = 'circle';
+    }
+
+    draw(ctx) {
+        ctx.fillStyle = this.color;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#000000';
+        ctx.stroke();
+    }
+
+    isInside(mouseX, mouseY) {
+        const dx = mouseX - this.x;
+        const dy = mouseY - this.y;
+        return dx * dx + dy * dy <= this.radius * this.radius;
+    }
 }
+
+class Diamond extends Shape {
+    constructor(x, y, width, height, color) {
+        super(x, y, color); // Diamond's x, y is the top-left corner of the bounding box
+        this.width = width;
+        this.height = height;
+        this.type = 'diamond';
+    }
+
+    draw(ctx) {
+        ctx.fillStyle = this.color;
+        ctx.beginPath();
+        ctx.moveTo(this.x + this.width / 2, this.y); // Top point
+        ctx.lineTo(this.x + this.width, this.y + this.height / 2); // Right point
+        ctx.lineTo(this.x + this.width / 2, this.y + this.height); // Bottom point
+        ctx.lineTo(this.x, this.y + this.height / 2); // Left point
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = '#000000';
+        ctx.stroke();
+    }
+
+    // Using bounding box for simplicity, could be more precise
+    isInside(mouseX, mouseY) {
+        // More accurate check would involve checking if point is within the 4 lines
+        // For now, use bounding box check like rectangle
+         return mouseX >= this.x && mouseX <= this.x + this.width &&
+                mouseY >= this.y && mouseY <= this.y + this.height;
+    }
+}
+
 
 // --- Canvas Redraw ---
 
@@ -55,19 +118,27 @@ function redrawCanvas() {
     // ctx.fillStyle = '#f0f0f0';
     // ctx.fillRect(0, 0, canvas.width, canvas.height);
 
+    // Draw shapes from bottom up (important for overlap/selection)
     shapes.forEach(shape => {
-        switch (shape.type) {
-            case 'rectangle':
-                drawRectangle(shape.x, shape.y, shape.width, shape.height, shape.color);
-                break;
-            case 'circle':
-                drawCircle(shape.x, shape.y, shape.radius, shape.color);
-                break;
-            case 'diamond':
-                drawDiamond(shape.x, shape.y, shape.width, shape.height, shape.color);
-                break;
-        }
+        shape.draw(ctx);
     });
+
+    // Optional: Highlight selected shape
+    if (selectedShape) {
+        // Example: Draw a thicker border or handles
+        ctx.strokeStyle = 'blue';
+        ctx.lineWidth = 2;
+        // Re-draw the selected shape's border slightly differently
+        if (selectedShape instanceof Rectangle || selectedShape instanceof Diamond) {
+             ctx.strokeRect(selectedShape.x, selectedShape.y, selectedShape.width, selectedShape.height);
+        } else if (selectedShape instanceof Circle) {
+             ctx.beginPath();
+             ctx.arc(selectedShape.x, selectedShape.y, selectedShape.radius, 0, Math.PI * 2);
+             ctx.stroke();
+        }
+        ctx.strokeStyle = 'black'; // Reset for other shapes
+        ctx.lineWidth = 1;
+    }
 }
 
 // --- Event Listeners ---
@@ -88,6 +159,7 @@ toolbar.addEventListener('click', (e) => {
 colorPicker.addEventListener('input', (e) => {
     currentColor = e.target.value;
     console.log(`Selected color: ${currentColor}`);
+    // If a shape is selected, update its color directly
     if (selectedShape) {
         selectedShape.color = currentColor;
         redrawCanvas();
@@ -100,54 +172,64 @@ canvas.addEventListener('mousedown', (e) => {
     const mouseX = e.clientX - rect.left;
     const mouseY = e.clientY - rect.top;
 
-    // Check if clicking on an existing shape
-    selectedShape = null; // Deselect first
+    // Check if clicking on an existing shape (iterate backwards for top-most)
+    let clickedShape = null;
     for (let i = shapes.length - 1; i >= 0; i--) {
         const shape = shapes[i];
-        // Basic bounding box check (improve for circles/diamonds later)
-        let isInside = false;
-        if (shape.type === 'rectangle' || shape.type === 'diamond') {
-             isInside = mouseX >= shape.x && mouseX <= shape.x + shape.width &&
-                        mouseY >= shape.y && mouseY <= shape.y + shape.height;
-        } else if (shape.type === 'circle') {
-            const dx = mouseX - shape.x;
-            const dy = mouseY - shape.y;
-            isInside = dx * dx + dy * dy <= shape.radius * shape.radius;
-        }
-
-        if (isInside) {
-            selectedShape = shape;
-            isDragging = true;
-            dragStartX = mouseX - shape.x;
-            dragStartY = mouseY - shape.y;
-            // Bring selected shape to front (optional, redraws all)
-            shapes.splice(i, 1);
-            shapes.push(selectedShape);
-            redrawCanvas();
-            console.log('Selected existing shape:', selectedShape);
-            return; // Stop after finding the top-most shape
+        if (shape.isInside(mouseX, mouseY)) {
+            clickedShape = shape;
+            break; // Found the top-most shape under the cursor
         }
     }
 
-    // If not clicking on an existing shape, add a new one
-    if (!selectedShape) {
-        isDragging = false; // Reset dragging flag
+    if (clickedShape) {
+        // Select the clicked shape
+        selectedShape = clickedShape;
+        isDragging = true;
+        // Calculate offset from shape's origin (top-left or center)
+        dragOffsetX = mouseX - selectedShape.x;
+        dragOffsetY = mouseY - selectedShape.y;
+
+        // Bring selected shape to the end of the array (drawn last/on top)
+        shapes.splice(shapes.indexOf(selectedShape), 1);
+        shapes.push(selectedShape);
+
+        // Update color picker to match selected shape's color
+        colorPicker.value = selectedShape.color;
+        currentColor = selectedShape.color; // Sync internal state too
+
+        redrawCanvas();
+        console.log('Selected existing shape:', selectedShape);
+
+    } else {
+        // If not clicking an existing shape, add a new one
+        selectedShape = null; // Deselect any previously selected shape
+        isDragging = false;
         let newShape;
         const defaultWidth = 100;
         const defaultHeight = 60;
-        const defaultRadius = 40;
+        const defaultRadius = 40; // For circle
+
+        // Center the shape on the click coordinates
+        const shapeX = mouseX - defaultWidth / 2;
+        const shapeY = mouseY - defaultHeight / 2;
+        const circleCenterX = mouseX;
+        const circleCenterY = mouseY;
+
 
         switch (currentShapeType) {
             case 'rectangle':
-                newShape = { type: 'rectangle', x: mouseX - defaultWidth / 2, y: mouseY - defaultHeight / 2, width: defaultWidth, height: defaultHeight, color: currentColor };
+                newShape = new Rectangle(shapeX, shapeY, defaultWidth, defaultHeight, currentColor);
                 break;
             case 'circle':
-                newShape = { type: 'circle', x: mouseX, y: mouseY, radius: defaultRadius, color: currentColor };
+                // For circle, x/y is center, so use click coords directly
+                newShape = new Circle(circleCenterX, circleCenterY, defaultRadius, currentColor);
                 break;
             case 'diamond':
-                 newShape = { type: 'diamond', x: mouseX - defaultWidth / 2, y: mouseY - defaultHeight / 2, width: defaultWidth, height: defaultHeight, color: currentColor };
+                 newShape = new Diamond(shapeX, shapeY, defaultWidth, defaultHeight, currentColor);
                 break;
         }
+
         if (newShape) {
             shapes.push(newShape);
             selectedShape = newShape; // Select the newly added shape
@@ -163,8 +245,9 @@ canvas.addEventListener('mousemove', (e) => {
         const mouseX = e.clientX - rect.left;
         const mouseY = e.clientY - rect.top;
 
-        selectedShape.x = mouseX - dragStartX;
-        selectedShape.y = mouseY - dragStartY;
+        // Update position based on drag offset
+        selectedShape.x = mouseX - dragOffsetX;
+        selectedShape.y = mouseY - dragOffsetY;
 
         redrawCanvas();
     }
@@ -173,16 +256,54 @@ canvas.addEventListener('mousemove', (e) => {
 canvas.addEventListener('mouseup', () => {
     if (isDragging) {
         console.log('Finished dragging shape:', selectedShape);
+        // Keep the shape selected after dragging stops
     }
     isDragging = false;
 });
 
 canvas.addEventListener('mouseleave', () => {
-    // Optional: Stop dragging if mouse leaves canvas
-    // if (isDragging) {
-    //     console.log('Dragging stopped (mouse left canvas)');
-    // }
-    // isDragging = false;
+    // Stop dragging if mouse leaves canvas while dragging
+    if (isDragging) {
+        console.log('Dragging stopped (mouse left canvas)');
+        isDragging = false;
+        // Keep the shape selected
+    }
+});
+
+// Deselect shape if clicking outside any shape
+canvas.addEventListener('click', (e) => {
+    if (!isDragging) { // Only deselect if not currently dragging
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+
+        let clickedOnShape = false;
+        for (let i = shapes.length - 1; i >= 0; i--) {
+            if (shapes[i].isInside(mouseX, mouseY)) {
+                clickedOnShape = true;
+                break;
+            }
+        }
+
+        if (!clickedOnShape) {
+            selectedShape = null;
+            redrawCanvas();
+            console.log('Deselected shape (clicked background)');
+        }
+    }
+});
+
+// Delete selected shape with Delete/Backspace key
+document.addEventListener('keydown', (e) => {
+    if ((e.key === 'Delete' || e.key === 'Backspace') && selectedShape) {
+        console.log('Deleting shape:', selectedShape);
+        const index = shapes.indexOf(selectedShape);
+        if (index > -1) {
+            shapes.splice(index, 1); // Remove the shape from the array
+        }
+        selectedShape = null; // Deselect
+        redrawCanvas(); // Update the canvas
+    }
 });
 
 
