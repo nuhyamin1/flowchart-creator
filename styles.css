@@ -141,6 +141,13 @@ body {
     box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
+/* Style for images inside alignment buttons */
+.align-button img {
+    max-height: 18px; /* Adjust size to fit button */
+    vertical-align: middle; /* Align vertically */
+    display: inline-block; /* Ensure proper alignment */
+}
+
 /* Canvas Container Styles */
 #canvas-container {
     flex-grow: 1; /* Take remaining vertical space */
