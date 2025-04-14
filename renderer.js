@@ -34,6 +34,7 @@ let shapeCenter = null; // Center of the shape being rotated
 let activeHandle = null; // Stores the type ('top-left', 'rotation', etc.) of the handle being dragged
 const handleSize = 8; // Size of the square resize handles
 let currentCursor = 'default'; // To manage cursor style changes
+let activeTextInput = null; // Reference to the currently active text input element
 
 
 // --- Helper Function to Set Active Tool ---
@@ -850,30 +851,139 @@ canvas.addEventListener('mousedown', (e) => {
                  saveState(); // Save state after adding shape
                  setActiveTool('default'); // Reset tool to default after creating shape
              }
-        } else if (currentShapeType === 'text') {
-            // NEW: Handle text tool click
-            const textContent = prompt("Enter text:", "Text");
-            if (textContent) { // Only add if user entered text
-                // Use mouseX, mouseY directly as the top-left starting point for text
-                newShape = new Text(mouseX, mouseY, textContent, currentColor || '#000000'); // Use current color or black
-                shapes.push(newShape);
-                console.log('Added new text:', newShape);
-                saveState(); // Save state after adding text
-                setActiveTool('default'); // Reset tool to default after adding text
-            } else {
-                console.log('Text input cancelled.');
-                setActiveTool('default'); // Reset tool even if cancelled
-            }
+        } else if (currentShapeType === 'text' && !activeTextInput) { // Only start if text tool active and no input already exists
+            // NEW: Handle text tool click - Start inline text input
+            console.log(`Starting text input at (${mouseX}, ${mouseY})`);
+            redrawCanvas(); // Redraw first to clear any selections
+            startTextInput(mouseX, mouseY);
+            e.stopPropagation(); // Prevent this click from interfering with input focus
+            // Don't redraw or save state yet, wait for input completion
         } else {
              // If line or default tool is active and clicked background, just deselect
              console.log(`Clicked background with ${currentShapeType} tool, deselected shape.`);
+             redrawCanvas(); // Redraw needed if deselecting
         }
-        redrawCanvas();
+        // Moved redrawCanvas calls into the specific conditions above
     }
 });
 
+// --- NEW: Functions for Inline Text Input ---
+
+function startTextInput(x, y) {
+    // Remove any existing input first (shouldn't happen often, but safety)
+    if (activeTextInput) {
+        finishTextInput(activeTextInput, false); // Cancel previous one
+    }
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.style.position = 'absolute';
+    // Position relative to the canvas's top-left corner
+    const canvasRect = canvas.getBoundingClientRect();
+    input.style.left = `${canvasRect.left + window.scrollX + x}px`;
+    input.style.top = `${canvasRect.top + window.scrollY + y}px`;
+    // Minimal styling for testing:
+    // input.style.border = '1px solid #ccc';
+    // input.style.padding = '2px';
+    // input.style.font = `${16}px Arial`;
+    // input.style.backgroundColor = 'white';
+    input.style.left = `${canvasRect.left + window.scrollX + x}px`;
+    input.style.top = `${canvasRect.top + window.scrollY + y}px`;
+    // Restore basic styling:
+    input.style.border = '1px solid #ccc';
+    input.style.padding = '2px';
+    input.style.font = `${16}px Arial`;
+    input.style.backgroundColor = 'white';
+    input.style.zIndex = '100'; // Ensure it's above the canvas
+
+    // Add listeners
+    input.addEventListener('blur', handleInputBlur); // Restore blur listener
+    input.addEventListener('keydown', handleInputKeyDown);
+    // Add a click listener to re-focus if clicked while active
+    input.addEventListener('click', (e) => {
+        e.stopPropagation(); // Prevent click from bubbling further
+        input.focus();
+    });
+
+
+    document.body.appendChild(input);
+    activeTextInput = input;
+    // Delay focus slightly to ensure the element is ready
+    setTimeout(() => input.focus(), 0);
+    console.log('Text input element created, focusing shortly.');
+}
+
+function handleInputBlur(event) {
+    console.log('Text input blurred.');
+    finishTextInput(event.target, true); // Attempt to add shape on blur
+}
+
+function handleInputKeyDown(event) {
+    console.log(`Key pressed in input: ${event.key}`); // Log all keys reaching the handler
+    // Stop the event from bubbling up to global listeners (like the delete key listener)
+    event.stopPropagation();
+
+    // Let the input field handle most keys normally (typing)
+    if (event.key === 'Enter') {
+        console.log('Enter pressed in text input.');
+        event.preventDefault(); // ONLY prevent default for Enter
+        finishTextInput(event.target, true); // Add shape
+    } else if (event.key === 'Escape') {
+        console.log('Escape pressed in text input.');
+        // No preventDefault needed for Escape
+        finishTextInput(event.target, false); // Cancel (don't add shape)
+    }
+    // For all other keys, allow default typing behavior by not doing anything else
+}
+
+function finishTextInput(inputElement, addShape) {
+    if (!inputElement || inputElement !== activeTextInput) return; // Safety check
+
+    const text = inputElement.value.trim();
+
+    if (addShape && text) {
+        // Get position from the input element's style (relative to viewport)
+        // and convert back to canvas coordinates
+        const canvasRect = canvas.getBoundingClientRect();
+        const inputRect = inputElement.getBoundingClientRect();
+        const canvasX = inputRect.left - canvasRect.left;
+        const canvasY = inputRect.top - canvasRect.top;
+
+        // Create the Text shape
+        const newTextShape = new Text(canvasX, canvasY, text, currentColor || '#000000'); // Use current color or black
+        shapes.push(newTextShape);
+        console.log('Added new text shape:', newTextShape);
+        saveState();
+        redrawCanvas();
+    } else {
+        console.log('Text input cancelled or empty.');
+    }
+
+    // Cleanup
+    inputElement.removeEventListener('blur', handleInputBlur); // Match restoration above
+    inputElement.removeEventListener('keydown', handleInputKeyDown);
+    // Find the click listener to remove it (more robust than assuming it exists)
+    // Note: getEventListeners is browser-specific, might not work reliably everywhere, but good for debugging
+    const clickListener = Array.from(inputElement.getEventListeners?.('click') || []).find(l => l.listener.toString().includes('input.focus()'));
+    if (clickListener) {
+        inputElement.removeEventListener('click', clickListener.listener);
+    }
+    document.body.removeChild(inputElement);
+    activeTextInput = null;
+    console.log('Text input element removed.');
+
+    // DO NOT reset tool here; it should remain 'text' until explicitly changed
+    // setActiveTool('default'); // REMOVED THIS LINE
+}
+
+// --- END: Functions for Inline Text Input ---
+
+
 // --- NEW: Double-click listener for editing text ---
 canvas.addEventListener('dblclick', (e) => {
+    // Prevent starting new text input on double-click
+    if (activeTextInput) return;
+
     const rect = canvas.getBoundingClientRect();
     const mouseX = e.clientX - rect.left;
     const mouseY = e.clientY - rect.top;
@@ -1230,8 +1340,14 @@ canvas.addEventListener('mouseleave', () => {
     }
 });
 
-// Delete selected shape (Unchanged)
+// Delete selected shape / Handle global keys
 document.addEventListener('keydown', (e) => {
+    // If the text input is active, let it handle the keydown event exclusively
+    if (activeTextInput) {
+        return;
+    }
+
+    // --- Shape Deletion ---
     if ((e.key === 'Delete' || e.key === 'Backspace') && selectedShape) {
         console.log('Deleting shape:', selectedShape);
         const index = shapes.indexOf(selectedShape);
