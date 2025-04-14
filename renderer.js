@@ -24,9 +24,14 @@ let isDrawingLine = false;
 let lineStartX, lineStartY;
 let tempLineEndX, tempLineEndY;
 
-// --- NEW State variables for Resizing ---
+// --- State variables for Resizing ---
 let isResizing = false;
-let activeHandle = null; // Stores the type ('top-left', 'bottom-right', etc.) of the handle being dragged
+// --- NEW State variables for Rotating ---
+let isRotating = false;
+let rotationStartAngle = 0; // Initial angle between center and mouse on mousedown
+let shapeCenter = null; // Center of the shape being rotated
+
+let activeHandle = null; // Stores the type ('top-left', 'rotation', etc.) of the handle being dragged
 const handleSize = 8; // Size of the square resize handles
 let currentCursor = 'default'; // To manage cursor style changes
 
@@ -71,17 +76,25 @@ function setActiveTool(toolType) {
         activeHandle = null;
         console.log('Resizing cancelled by switching tool.');
     }
+    // NEW: Cancel rotation on tool switch
+    if (isRotating) {
+        isRotating = false;
+        activeHandle = null;
+        console.log('Rotation cancelled by switching tool.');
+    }
 }
 
 
 // --- Shape Classes --- (Keep Rectangle, Circle, Diamond, Line as before)
 class Shape {
     constructor(x, y, color) {
-        this.x = x;
+        this.x = x; // Typically top-left for rect/diamond, center for circle
         this.y = y;
         this.color = color;
+        this.angle = 0; // NEW: Rotation angle in radians
         this.id = Date.now() + Math.random(); // Simple unique ID
     }
+    // Abstract methods
     draw(ctx) { throw new Error("Draw method must be implemented"); }
     isInside(mouseX, mouseY) { throw new Error("isInside method must be implemented"); }
     // NEW: Method to get resize handles (returns array of handle objects)
@@ -89,8 +102,18 @@ class Shape {
 
     // Helper for deep cloning shapes for history
     clone() {
-        // Basic clone, might need more specific logic if shapes get complex
-        return Object.assign(Object.create(Object.getPrototypeOf(this)), this);
+        // Basic clone, ensure subclasses override if they have non-primitive properties
+        const cloned = Object.assign(Object.create(Object.getPrototypeOf(this)), this);
+        // Ensure angle is copied (it's primitive, so Object.assign works, but good practice)
+        cloned.angle = this.angle;
+        return cloned;
+    }
+
+    // NEW: Helper to get center coordinates (needed for rotation)
+    getCenter() {
+        // Default implementation (e.g., for point-like shapes if any)
+        // Subclasses like Rectangle, Circle, Diamond MUST override this.
+        return { x: this.x, y: this.y };
     }
 }
 
@@ -102,7 +125,18 @@ class Rectangle extends Shape {
         this.type = 'rectangle';
     }
 
+    getCenter() {
+        return { x: this.x + this.width / 2, y: this.y + this.height / 2 };
+    }
+
     draw(ctx) {
+        const center = this.getCenter();
+        ctx.save(); // Save context state
+        ctx.translate(center.x, center.y); // Translate to center
+        ctx.rotate(this.angle); // Rotate
+        ctx.translate(-center.x, -center.y); // Translate back
+
+        // Draw relative to original top-left (this.x, this.y)
         // Only fill if color is not null
         if (this.color) {
             ctx.fillStyle = this.color;
@@ -111,29 +145,51 @@ class Rectangle extends Shape {
         ctx.strokeStyle = '#000000'; // Always draw border
         ctx.lineWidth = 1;
         ctx.strokeRect(this.x, this.y, this.width, this.height);
+
+        ctx.restore(); // Restore context state
     }
 
     isInside(mouseX, mouseY) {
+        // TODO: Improve this for rotated shapes. Currently uses axis-aligned bounding box.
+        // For now, keep the simple check. Accurate check requires transforming mouse coords.
         return mouseX >= this.x && mouseX <= this.x + this.width &&
                mouseY >= this.y && mouseY <= this.y + this.height;
     }
 
     getHandles() {
-        const x = this.x;
-        const y = this.y;
-        const w = this.width;
-        const h = this.height;
-        const halfH = handleSize / 2;
-        return [
-            { x: x - halfH,         y: y - halfH,          type: 'top-left' },
-            { x: x + w / 2 - halfH, y: y - halfH,          type: 'top-center' },
-            { x: x + w - halfH,     y: y - halfH,          type: 'top-right' },
-            { x: x - halfH,         y: y + h / 2 - halfH,  type: 'middle-left' },
-            { x: x + w - halfH,     y: y + h / 2 - halfH,  type: 'middle-right' },
-            { x: x - halfH,         y: y + h - halfH,      type: 'bottom-left' },
-            { x: x + w / 2 - halfH, y: y + h - halfH,      type: 'bottom-center' },
-            { x: x + w - halfH,     y: y + h - halfH,      type: 'bottom-right' },
+        const center = this.getCenter();
+        const angle = this.angle;
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
+        const halfW = this.width / 2;
+        const halfH = this.height / 2;
+        const handleOffset = handleSize / 2;
+        const rotationHandleOffset = 20; // Distance above the top-center handle
+
+        // Calculate unrotated handle positions relative to center
+        const unrotatedHandles = [
+            { relX: -halfW, relY: -halfH, type: 'top-left' },
+            { relX: 0,     relY: -halfH, type: 'top-center' },
+            { relX: halfW, relY: -halfH, type: 'top-right' },
+            { relX: -halfW, relY: 0,      type: 'middle-left' },
+            { relX: halfW, relY: 0,      type: 'middle-right' },
+            { relX: -halfW, relY: halfH, type: 'bottom-left' },
+            { relX: 0,     relY: halfH, type: 'bottom-center' },
+            { relX: halfW, relY: halfH, type: 'bottom-right' },
+            // Rotation handle (relative position above top-center)
+            { relX: 0,     relY: -halfH - rotationHandleOffset, type: 'rotation' }
         ];
+
+        // Rotate each handle position around the center
+        return unrotatedHandles.map(handle => {
+            const rotatedX = handle.relX * cos - handle.relY * sin;
+            const rotatedY = handle.relX * sin + handle.relY * cos;
+            return {
+                x: center.x + rotatedX - handleOffset, // Adjust for handle size
+                y: center.y + rotatedY - handleOffset, // Adjust for handle size
+                type: handle.type
+            };
+        });
     }
 }
 
@@ -144,7 +200,19 @@ class Circle extends Shape {
         this.type = 'circle';
     }
 
+    // Circle's x, y IS the center
+    getCenter() {
+        return { x: this.x, y: this.y };
+    }
+
     draw(ctx) {
+        const center = this.getCenter(); // Which is just { x: this.x, y: this.y }
+        ctx.save();
+        ctx.translate(center.x, center.y);
+        ctx.rotate(this.angle); // Circles look the same rotated, but handles will rotate
+        ctx.translate(-center.x, -center.y);
+
+        // Draw centered at original this.x, this.y
         ctx.beginPath();
         ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
         // Only fill if color is not null
@@ -155,32 +223,51 @@ class Circle extends Shape {
         ctx.strokeStyle = '#000000'; // Always draw border
         ctx.lineWidth = 1;
         ctx.stroke();
+
+        ctx.restore();
     }
 
     isInside(mouseX, mouseY) {
+        // Rotation doesn't affect circle's isInside check based on center distance
         const dx = mouseX - this.x;
         const dy = mouseY - this.y;
         return dx * dx + dy * dy <= this.radius * this.radius;
     }
 
-    // Circles typically resize uniformly, often just from corner handles conceptually
+    // Circles typically resize uniformly. Handles are on the bounding box.
     getHandles() {
-        const x = this.x;
-        const y = this.y;
+        const center = this.getCenter(); // which is { x: this.x, y: this.y }
+        const angle = this.angle; // Angle matters for handle positions even if circle looks same
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
         const r = this.radius;
-        const halfH = handleSize / 2;
-         // Use bounding box for handles
-        return [
-            { x: x - r - halfH, y: y - r - halfH, type: 'top-left' },      // Top-left corner
-            { x: x + r - halfH, y: y - r - halfH, type: 'top-right' },     // Top-right corner
-            { x: x - r - halfH, y: y + r - halfH, type: 'bottom-left' },   // Bottom-left corner
-            { x: x + r - halfH, y: y + r - halfH, type: 'bottom-right' },  // Bottom-right corner
-             // Optional: Could add N, S, E, W handles too
-             { x: x - halfH,     y: y - r - halfH, type: 'top-center' },    // Top-center
-             { x: x - halfH,     y: y + r - halfH, type: 'bottom-center' }, // Bottom-center
-             { x: x - r - halfH, y: y - halfH,     type: 'middle-left' },   // Middle-left
-             { x: x + r - halfH, y: y - halfH,     type: 'middle-right' },  // Middle-right
+        const handleOffset = handleSize / 2;
+        const rotationHandleOffset = 20; // Distance above the top handle
+
+        // Calculate unrotated handle positions relative to center (using bounding box)
+        const unrotatedHandles = [
+            { relX: -r, relY: -r, type: 'top-left' },
+            { relX: 0,  relY: -r, type: 'top-center' },
+            { relX: r,  relY: -r, type: 'top-right' },
+            { relX: -r, relY: 0,  type: 'middle-left' },
+            { relX: r,  relY: 0,  type: 'middle-right' },
+            { relX: -r, relY: r,  type: 'bottom-left' },
+            { relX: 0,  relY: r,  type: 'bottom-center' },
+            { relX: r,  relY: r,  type: 'bottom-right' },
+            // Rotation handle (relative position above top-center)
+            { relX: 0,  relY: -r - rotationHandleOffset, type: 'rotation' }
         ];
+
+        // Rotate each handle position around the center
+        return unrotatedHandles.map(handle => {
+            const rotatedX = handle.relX * cos - handle.relY * sin;
+            const rotatedY = handle.relX * sin + handle.relY * cos;
+            return {
+                x: center.x + rotatedX - handleOffset, // Adjust for handle size
+                y: center.y + rotatedY - handleOffset, // Adjust for handle size
+                type: handle.type
+            };
+        });
     }
 }
 
@@ -192,7 +279,18 @@ class Diamond extends Shape {
         this.type = 'diamond';
     }
 
+    getCenter() {
+        return { x: this.x + this.width / 2, y: this.y + this.height / 2 };
+    }
+
     draw(ctx) {
+        const center = this.getCenter();
+        ctx.save();
+        ctx.translate(center.x, center.y);
+        ctx.rotate(this.angle);
+        ctx.translate(-center.x, -center.y);
+
+        // Draw relative to original top-left (this.x, this.y)
         ctx.beginPath();
         ctx.moveTo(this.x + this.width / 2, this.y); // Top point
         ctx.lineTo(this.x + this.width, this.y + this.height / 2); // Right point
@@ -207,31 +305,53 @@ class Diamond extends Shape {
         ctx.strokeStyle = '#000000'; // Always draw border
         ctx.lineWidth = 1;
         ctx.stroke();
+
+        ctx.restore();
     }
 
     isInside(mouseX, mouseY) {
-        // Basic bounding box check - sufficient for selection
+        // TODO: Improve this for rotated shapes. Currently uses axis-aligned bounding box.
+        // For now, keep the simple check. Accurate check requires transforming mouse coords.
         return mouseX >= this.x && mouseX <= this.x + this.width &&
                mouseY >= this.y && mouseY <= this.y + this.height;
     }
 
      // Use bounding box for handles, similar to Rectangle
     getHandles() {
-        const x = this.x;
-        const y = this.y;
-        const w = this.width;
-        const h = this.height;
-        const halfH = handleSize / 2;
-        return [
-            { x: x - halfH,         y: y - halfH,          type: 'top-left' }, // BBox Top-Left
-            { x: x + w / 2 - halfH, y: y - halfH,          type: 'top-center' },
-            { x: x + w - halfH,     y: y - halfH,          type: 'top-right' }, // BBox Top-Right
-            { x: x - halfH,         y: y + h / 2 - halfH,  type: 'middle-left' },
-            { x: x + w - halfH,     y: y + h / 2 - halfH,  type: 'middle-right' },
-            { x: x - halfH,         y: y + h - halfH,      type: 'bottom-left' }, // BBox Bottom-Left
-            { x: x + w / 2 - halfH, y: y + h - halfH,      type: 'bottom-center' },
-            { x: x + w - halfH,     y: y + h - halfH,      type: 'bottom-right' }, // BBox Bottom-Right
+        // Same logic as Rectangle, using bounding box width/height
+        const center = this.getCenter();
+        const angle = this.angle;
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
+        const halfW = this.width / 2;
+        const halfH = this.height / 2;
+        const handleOffset = handleSize / 2;
+        const rotationHandleOffset = 20; // Distance above the top-center handle
+
+        // Calculate unrotated handle positions relative to center
+        const unrotatedHandles = [
+            { relX: -halfW, relY: -halfH, type: 'top-left' },
+            { relX: 0,     relY: -halfH, type: 'top-center' },
+            { relX: halfW, relY: -halfH, type: 'top-right' },
+            { relX: -halfW, relY: 0,      type: 'middle-left' },
+            { relX: halfW, relY: 0,      type: 'middle-right' },
+            { relX: -halfW, relY: halfH, type: 'bottom-left' },
+            { relX: 0,     relY: halfH, type: 'bottom-center' },
+            { relX: halfW, relY: halfH, type: 'bottom-right' },
+            // Rotation handle (relative position above top-center)
+            { relX: 0,     relY: -halfH - rotationHandleOffset, type: 'rotation' }
         ];
+
+        // Rotate each handle position around the center
+        return unrotatedHandles.map(handle => {
+            const rotatedX = handle.relX * cos - handle.relY * sin;
+            const rotatedY = handle.relX * sin + handle.relY * cos;
+            return {
+                x: center.x + rotatedX - handleOffset, // Adjust for handle size
+                y: center.y + rotatedY - handleOffset, // Adjust for handle size
+                type: handle.type
+            };
+        });
     }
 }
 
@@ -281,8 +401,17 @@ class Line extends Shape {
         return [];
     }
 
-    clone() { // Add the correct clone method here
-        return new Line(this.x1, this.y1, this.x2, this.y2, this.color);
+    clone() {
+        const cloned = super.clone(); // Call base clone
+        cloned.x1 = this.x1;
+        cloned.y1 = this.y1;
+        cloned.x2 = this.x2;
+        cloned.y2 = this.y2;
+        cloned.dx = this.dx;
+        cloned.dy = this.dy;
+        // Lines don't have angle property used in this implementation
+        delete cloned.angle;
+        return cloned;
     }
 } // Correctly close the Line class
 
@@ -317,8 +446,12 @@ function getCursorForHandle(handleType) {
         case 'middle-left':
         case 'middle-right':
             return 'ew-resize';
+        case 'rotation':
+            // Use 'grabbing' if currently rotating, 'grab' otherwise
+            return isRotating ? 'grabbing' : 'grab';
         default:
-            return 'move'; // Default for shape body
+            // If dragging the shape body, use 'grabbing', otherwise 'move'
+            return isDragging ? 'grabbing' : 'move';
     }
 }
 
@@ -439,8 +572,19 @@ function redrawCanvas() {
              ctx.strokeStyle = 'black'; // Handle border color
              ctx.lineWidth = 1;
              handles.forEach(handle => {
-                 ctx.fillRect(handle.x, handle.y, handleSize, handleSize);
-                 ctx.strokeRect(handle.x, handle.y, handleSize, handleSize);
+                 if (handle.type === 'rotation') {
+                     // Draw rotation handle as a circle
+                     ctx.beginPath();
+                     ctx.arc(handle.x + handleSize / 2, handle.y + handleSize / 2, handleSize / 1.5, 0, Math.PI * 2);
+                     ctx.fillStyle = 'lightblue';
+                     ctx.fill();
+                     ctx.stroke();
+                 } else {
+                     // Draw resize handles as squares
+                     ctx.fillStyle = 'white';
+                     ctx.fillRect(handle.x, handle.y, handleSize, handleSize);
+                     ctx.strokeRect(handle.x, handle.y, handleSize, handleSize);
+                 }
              });
         }
         // -------------------------------
@@ -499,19 +643,38 @@ canvas.addEventListener('mousedown', (e) => {
 
     isDragging = false; // Reset flags
     isResizing = false;
+    isRotating = false; // Reset rotation flag
     activeHandle = null;
+    shapeCenter = null;
 
-    // Priority 1: Check if clicking on a resize handle of the selected shape
+    // Priority 1: Check if clicking on a handle (resize or rotation) of the selected shape
     if (selectedShape) {
         activeHandle = getHandleAt(mouseX, mouseY);
         if (activeHandle) {
-            isResizing = true;
-            // Store initial state for resizing calculations if needed (optional here, calculated in mousemove)
-            console.log(`Start resizing using handle: ${activeHandle}`);
-            // Bring selected shape to front (already done on selection usually)
+            // Bring selected shape to front
             shapes.splice(shapes.indexOf(selectedShape), 1);
             shapes.push(selectedShape);
-            redrawCanvas();
+
+            if (activeHandle === 'rotation') {
+                isRotating = true;
+                isResizing = false; // Ensure not resizing
+                shapeCenter = selectedShape.getCenter();
+                // Calculate initial angle from center to mouse
+                const dx = mouseX - shapeCenter.x;
+                const dy = mouseY - shapeCenter.y;
+                rotationStartAngle = Math.atan2(dy, dx);
+                console.log(`Start rotating. Center: (${shapeCenter.x.toFixed(1)}, ${shapeCenter.y.toFixed(1)}), Start Angle: ${rotationStartAngle.toFixed(2)}`);
+                canvas.style.cursor = getCursorForHandle('rotation'); // Set grabbing cursor immediately
+                currentCursor = canvas.style.cursor;
+
+            } else { // It's a resize handle
+                isResizing = true;
+                isRotating = false; // Ensure not rotating
+                console.log(`Start resizing using handle: ${activeHandle}`);
+                // Initial state for resizing is handled in mousemove
+            }
+
+            redrawCanvas(); // Redraw needed to show potential cursor change or immediate feedback
             return; // Don't proceed to other checks
         }
     }
@@ -543,11 +706,17 @@ canvas.addEventListener('mousedown', (e) => {
     if (clickedShape) {
         selectedShape = clickedShape;
         isDragging = true; // Start dragging the shape
-        activeHandle = null; // Ensure not resizing
+        activeHandle = null; // Ensure not resizing or rotating via handle
         isResizing = false;
+        isRotating = false;
         // Calculate drag offset
-        dragOffsetX = mouseX - selectedShape.x; // Use base x for offset
-        dragOffsetY = mouseY - selectedShape.y; // Use base y for offset
+        dragOffsetX = mouseX - selectedShape.x; // Use base x for offset (rect, diamond)
+        dragOffsetY = mouseY - selectedShape.y; // Use base y for offset (rect, diamond)
+        // For Circle, offset is relative to center (which is x,y)
+        if (selectedShape instanceof Circle) {
+            dragOffsetX = mouseX - selectedShape.x;
+            dragOffsetY = mouseY - selectedShape.y;
+        }
          // Store relative position for lines if dragging line
          if (selectedShape instanceof Line) {
              dragOffsetX = mouseX - selectedShape.x1;
@@ -614,11 +783,34 @@ canvas.addEventListener('mousemove', (e) => {
     const rect = canvas.getBoundingClientRect();
     const mouseX = e.clientX - rect.left;
     const mouseY = e.clientY - rect.top;
-    let cursor = 'default'; // Default cursor
+    let cursor = currentCursor; // Start with current cursor
+
+    // --- Handle Rotation ---
+    if (isRotating && selectedShape && shapeCenter) {
+        const dx = mouseX - shapeCenter.x;
+        const dy = mouseY - shapeCenter.y;
+        const currentAngle = Math.atan2(dy, dx);
+
+        // Calculate the change in angle since the last mousemove (or mousedown)
+        let angleDelta = currentAngle - rotationStartAngle;
+
+        // Apply the delta to the shape's angle
+        selectedShape.angle += angleDelta;
+
+        // Update the start angle for the next mousemove event
+        rotationStartAngle = currentAngle;
+
+        cursor = getCursorForHandle('rotation'); // Should be 'grabbing'
+        redrawCanvas();
 
     // --- Handle Resizing ---
-    if (isResizing && selectedShape && activeHandle) {
+    } else if (isResizing && selectedShape && activeHandle) {
         const shape = selectedShape;
+        // TODO: Resizing logic needs to account for rotation! This is complex.
+        // For now, resizing will likely behave unexpectedly on rotated shapes.
+        // A proper implementation would involve transforming mouse coordinates
+        // into the shape's local coordinate system before applying resize logic.
+        // --- Existing resize logic (will be inaccurate for rotated shapes) ---
         const minSize = handleSize * 2; // Minimum width/height or radius
 
         // Store original values before modification
@@ -701,24 +893,33 @@ canvas.addEventListener('mousemove', (e) => {
         }
 
         cursor = getCursorForHandle(activeHandle);
+        // --- End of existing resize logic ---
+        cursor = getCursorForHandle(activeHandle);
         redrawCanvas();
 
     // --- Handle Shape Dragging ---
     } else if (isDragging && selectedShape) {
         const newX = mouseX - dragOffsetX;
         const newY = mouseY - dragOffsetY;
+
         if (selectedShape instanceof Line) {
-             selectedShape.x1 = newX;
-             selectedShape.y1 = newY;
-             selectedShape.x2 = newX + selectedShape.dx;
-             selectedShape.y2 = newY + selectedShape.dy;
-             selectedShape.x = newX; // Update base x/y too
-             selectedShape.y = newY;
-         } else {
+            // Line dragging logic (unaffected by rotation implementation)
+            selectedShape.x1 = newX;
+            selectedShape.y1 = newY;
+            selectedShape.x2 = newX + selectedShape.dx;
+            selectedShape.y2 = newY + selectedShape.dy;
+            selectedShape.x = newX; // Update base x/y too
+            selectedShape.y = newY;
+        } else if (selectedShape instanceof Circle) {
+            // Circle's x,y is its center
             selectedShape.x = newX;
             selectedShape.y = newY;
-         }
-        cursor = 'move';
+        } else {
+            // Rectangle, Diamond - x,y is top-left
+            selectedShape.x = newX;
+            selectedShape.y = newY;
+        }
+        cursor = getCursorForHandle(null); // Should be 'grabbing'
         redrawCanvas();
 
     // --- Handle Line Drawing Preview ---
@@ -766,13 +967,30 @@ canvas.addEventListener('mousemove', (e) => {
 canvas.addEventListener('mouseup', (e) => {
     let stateChanged = false; // Flag to check if we need to save state
 
+    // Finalize rotation
+    if (isRotating) {
+        console.log('Finished rotating shape:', selectedShape);
+        isRotating = false;
+        activeHandle = null;
+        shapeCenter = null;
+        stateChanged = true; // Rotation changes state
+        // Set cursor back to default or move
+        canvas.style.cursor = selectedShape ? getCursorForHandle(null) : 'default';
+        currentCursor = canvas.style.cursor;
+        // No redraw needed here, mousemove already did it. Save state below.
+    }
+
     // Finalize resizing
     if (isResizing) {
         console.log('Finished resizing shape:', selectedShape);
+        // TODO: Resizing rotated shapes needs fixing.
         isResizing = false;
         activeHandle = null;
         stateChanged = true; // Resizing changes state
-        redrawCanvas(); // Redraw without handles if mouse moved off canvas during resize
+        // Set cursor back to default or move
+        canvas.style.cursor = selectedShape ? getCursorForHandle(null) : 'default';
+        currentCursor = canvas.style.cursor;
+        redrawCanvas(); // Redraw needed to potentially update cursor based on hover after resize
     }
 
     // Finalize dragging
@@ -780,6 +998,9 @@ canvas.addEventListener('mouseup', (e) => {
         console.log('Finished dragging shape:', selectedShape);
         isDragging = false;
         stateChanged = true; // Dragging changes state
+        // Set cursor back to default or move
+        canvas.style.cursor = selectedShape ? getCursorForHandle(null) : 'default';
+        currentCursor = canvas.style.cursor;
     }
 
     // Finalize line drawing
@@ -832,9 +1053,18 @@ canvas.addEventListener('mouseleave', () => {
          console.log('Resizing cancelled (mouse left canvas)');
          redrawCanvas(); // Redraw without handles
     }
-    // Reset cursor
-    canvas.style.cursor = 'default';
-    currentCursor = 'default';
+    if (isRotating) {
+        isRotating = false;
+        activeHandle = null;
+        shapeCenter = null;
+        console.log('Rotation cancelled (mouse left canvas)');
+        redrawCanvas(); // Redraw without handles
+    }
+    // Reset cursor only if not actively doing something else (should be covered above)
+    if (!isDragging && !isResizing && !isRotating && !isDrawingLine) {
+        canvas.style.cursor = 'default';
+        currentCursor = 'default';
+    }
 });
 
 // Delete selected shape (Unchanged)
@@ -854,6 +1084,13 @@ document.addEventListener('keydown', (e) => {
              isResizing = false;
              activeHandle = null;
              console.log("Resizing cancelled by delete key.");
+         }
+         // NEW: Cancel rotation on delete
+         if (isRotating) {
+             isRotating = false;
+             activeHandle = null;
+             shapeCenter = null;
+             console.log("Rotation cancelled by delete key.");
          }
         redrawCanvas();
         saveState(); // Save state after deleting
