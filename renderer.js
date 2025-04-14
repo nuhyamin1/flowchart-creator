@@ -7,9 +7,7 @@ const ctx = canvas.getContext('2d');
 const toolbar = document.getElementById('toolbar');
 const colorPicker = document.getElementById('colorPicker');
 const removeColorButton = document.getElementById('removeColorButton'); // Get reference to the new button
-const savePngButton = document.getElementById('savePng');
-const saveJpgButton = document.getElementById('saveJpg');
-// Removed undoButton and redoButton references
+// Removed savePngButton and saveJpgButton references
 
 let shapes = []; // Array to hold all shape objects
 let history = []; // For Undo/Redo
@@ -873,36 +871,75 @@ if (window.electronAPI) {
     console.log('Redo action triggered from menu.');
     redo();
   });
-} else {
-  console.error('electronAPI not found on window. Check preload script.');
-}
 
+  // --- NEW: Listen for Save Request from Menu ---
+  window.electronAPI.onRequestSave(async () => {
+    console.log('Save As... action triggered from menu.');
 
-// --- Save Functionality --- (Keep existing save functions)
-async function saveCanvasToFile(format) { /* ... unchanged ... */
-    let dataURL;
-    let filter;
-
-    // Deselect shape before saving for a clean image
-    const previouslySelected = selectedShape; // Store selection
+    // Deselect shape temporarily for a clean image
+    const previouslySelected = selectedShape;
     selectedShape = null;
     redrawCanvas(); // Redraw without selection highlight/handles
 
-    if (format === 'png') { /* ... */ }
-    else if (format === 'jpg') { /* ... */ }
-    else { /* ... */ return; }
+    try {
+      // Show save dialog, allowing PNG and JPG
+      const result = await window.electronAPI.saveDialog({
+        name: 'Images', extensions: ['png', 'jpg']
+      });
 
-    try { /* ... */ }
-    catch (error) { /* ... */ }
-    finally {
-        // Reselect shape if it was selected before saving
-        selectedShape = previouslySelected;
-        redrawCanvas();
+      if (!result.canceled && result.filePath) {
+        const filePath = result.filePath;
+        let dataURL;
+        let format = 'png'; // Default to png
+
+        // Determine format from file extension
+        if (filePath.toLowerCase().endsWith('.jpg') || filePath.toLowerCase().endsWith('.jpeg')) {
+          format = 'jpeg'; // Canvas uses 'jpeg'
+        }
+
+        // Generate Data URL
+        if (format === 'jpeg') {
+          // For JPG, need to draw background color first
+          const currentBg = canvas.style.backgroundColor || '#ffffff'; // Use white if none set
+          ctx.globalCompositeOperation = 'destination-over'; // Draw behind existing content
+          ctx.fillStyle = currentBg;
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.globalCompositeOperation = 'source-over'; // Reset composite operation
+          dataURL = canvas.toDataURL('image/jpeg', 0.9); // Quality 0.9
+          redrawCanvas(); // Redraw to remove the temporary background fill for subsequent operations
+        } else { // PNG
+          dataURL = canvas.toDataURL('image/png');
+        }
+
+        // Write file via main process
+        const writeResult = await window.electronAPI.writeFile(filePath, dataURL);
+        if (writeResult.success) {
+          console.log(`Canvas saved successfully to ${filePath}`);
+          // Optionally show a success message to the user
+        } else {
+          console.error('Failed to save canvas:', writeResult.error);
+          // Optionally show an error message to the user
+          alert(`Error saving file: ${writeResult.error}`); // Simple alert for error
+        }
+      } else {
+        console.log('Save dialog cancelled.');
+      }
+    } catch (error) {
+      console.error('Error during save process:', error);
+      alert(`An error occurred: ${error.message}`); // Simple alert for error
+    } finally {
+      // Reselect shape if it was selected before saving
+      selectedShape = previouslySelected;
+      if (selectedShape) { // Only redraw if there was a selection
+          redrawCanvas();
+      }
     }
-}
+  });
+  // ---------------------------------------------
 
-savePngButton.addEventListener('click', () => { saveCanvasToFile('png'); });
-saveJpgButton.addEventListener('click', () => { saveCanvasToFile('jpg'); });
+} else {
+  console.error('electronAPI not found on window. Check preload script.');
+}
 
 
 // --- Initial Draw & State ---

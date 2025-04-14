@@ -12,7 +12,8 @@ contextBridge.exposeInMainWorld(
 
     // Main to Renderer (Send/On) - Expose a listener function
     onUndo: (callback) => ipcRenderer.on('undo-action', (event, ...args) => callback(...args)),
-    onRedo: (callback) => ipcRenderer.on('redo-action', (event, ...args) => callback(...args))
+    onRedo: (callback) => ipcRenderer.on('redo-action', (event, ...args) => callback(...args)),
+    onRequestSave: (callback) => ipcRenderer.on('request-save-canvas', (event, ...args) => callback(...args)) // Add listener for save request
   }
 );
 

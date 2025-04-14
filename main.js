@@ -51,6 +51,15 @@ app.whenReady().then(() => {
     {
       label: 'File',
       submenu: [
+        {
+          label: 'Save As...',
+          accelerator: 'CmdOrCtrl+S', // Standard save shortcut
+          click: () => {
+            // Send a message to the renderer process to trigger the save logic
+            mainWindow?.webContents.send('request-save-canvas');
+          }
+        },
+        { type: 'separator' }, // Add a separator for visual clarity
         process.platform === 'darwin' ? { role: 'close' } : { role: 'quit' }
       ]
     },
