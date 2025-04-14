@@ -789,6 +789,10 @@ canvas.addEventListener('mousedown', (e) => {
                 selectedShape.initialCenter = selectedShape.getCenter();
                 selectedShape.initialMouseX = mouseX;
                 selectedShape.initialMouseY = mouseY;
+                // --- NEW: Store initial font size for text ---
+                if (selectedShape instanceof Text) {
+                    selectedShape.initialFontSize = selectedShape.fontSize;
+                }
                 // ------------------------------------
             }
 
@@ -1170,6 +1174,24 @@ canvas.addEventListener('mousemove', (e) => {
         shape.height = newH;
         shape.x = newX;
         shape.y = newY;
+
+        // --- NEW: Specific handling for Text ---
+        if (shape instanceof Text) {
+            // Scale font size based on the change in height
+            const initialFontSize = shape.initialFontSize || 16; // Get initial font size
+            const minFontSize = 4; // Minimum font size
+            if (initialH > 0) { // Avoid division by zero
+                 // Calculate new font size proportionally to height change
+                 let calculatedFontSize = initialFontSize * (newH / initialH);
+                 shape.fontSize = Math.max(minFontSize, calculatedFontSize); // Apply minimum size
+            }
+            // Recalculate width/height based on new font size and text content
+            shape.updateDimensions();
+            // Re-apply calculated position after updateDimensions
+            shape.x = newX;
+            shape.y = newY;
+        }
+        // ------------------------------------
 
         // Specific handling for Circle: maintain center, adjust radius based on transformed mouse
         if (shape instanceof Circle) {
