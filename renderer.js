@@ -6,6 +6,7 @@ const canvas = document.getElementById('flowchartCanvas');
 const ctx = canvas.getContext('2d');
 const toolbar = document.getElementById('toolbar');
 const colorPicker = document.getElementById('colorPicker');
+const removeColorButton = document.getElementById('removeColorButton'); // Get reference to the new button
 const savePngButton = document.getElementById('savePng');
 const saveJpgButton = document.getElementById('saveJpg');
 // Removed undoButton and redoButton references
@@ -18,7 +19,7 @@ let selectedShape = null;
 let isDragging = false;
 let dragOffsetX, dragOffsetY; // Offset from shape origin to mouse click
 let currentShapeType = 'rectangle'; // Default shape
-let currentColor = '#000000'; // Default color
+let currentColor = null; // Default color (null means no fill)
 
 // --- State variables for Line Drawing ---
 let isDrawingLine = false;
@@ -104,9 +105,12 @@ class Rectangle extends Shape {
     }
 
     draw(ctx) {
-        ctx.fillStyle = this.color;
-        ctx.fillRect(this.x, this.y, this.width, this.height);
-        ctx.strokeStyle = '#000000';
+        // Only fill if color is not null
+        if (this.color) {
+            ctx.fillStyle = this.color;
+            ctx.fillRect(this.x, this.y, this.width, this.height);
+        }
+        ctx.strokeStyle = '#000000'; // Always draw border
         ctx.lineWidth = 1;
         ctx.strokeRect(this.x, this.y, this.width, this.height);
     }
@@ -143,11 +147,14 @@ class Circle extends Shape {
     }
 
     draw(ctx) {
-        ctx.fillStyle = this.color;
         ctx.beginPath();
         ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = '#000000';
+        // Only fill if color is not null
+        if (this.color) {
+            ctx.fillStyle = this.color;
+            ctx.fill();
+        }
+        ctx.strokeStyle = '#000000'; // Always draw border
         ctx.lineWidth = 1;
         ctx.stroke();
     }
@@ -188,15 +195,18 @@ class Diamond extends Shape {
     }
 
     draw(ctx) {
-        ctx.fillStyle = this.color;
         ctx.beginPath();
         ctx.moveTo(this.x + this.width / 2, this.y); // Top point
         ctx.lineTo(this.x + this.width, this.y + this.height / 2); // Right point
         ctx.lineTo(this.x + this.width / 2, this.y + this.height); // Bottom point
         ctx.lineTo(this.x, this.y + this.height / 2); // Left point
         ctx.closePath();
-        ctx.fill();
-        ctx.strokeStyle = '#000000';
+        // Only fill if color is not null
+        if (this.color) {
+            ctx.fillStyle = this.color;
+            ctx.fill();
+        }
+        ctx.strokeStyle = '#000000'; // Always draw border
         ctx.lineWidth = 1;
         ctx.stroke();
     }
@@ -455,14 +465,29 @@ toolbar.addEventListener('click', (e) => {
 
 // Color selection
 colorPicker.addEventListener('input', (e) => {
-     currentColor = e.target.value;
-     console.log(`Selected color: ${currentColor}`);
-     if (selectedShape) {
-         selectedShape.color = currentColor;
+     const newColor = e.target.value;
+     currentColor = newColor; // Update the global current color for future shapes
+     console.log(`Selected color: ${newColor}`);
+     if (selectedShape && !(selectedShape instanceof Line)) { // Apply color to selected shape (if not a line)
+         selectedShape.color = newColor;
          redrawCanvas();
          saveState(); // Save state after color change
      }
  });
+
+// Remove color button listener
+removeColorButton.addEventListener('click', () => {
+    if (selectedShape && !(selectedShape instanceof Line)) {
+        console.log('Removing fill color from selected shape.');
+        selectedShape.color = null; // Set shape color to null (no fill)
+        currentColor = null; // Set the global current color to null as well
+        colorPicker.value = '#000000'; // Reset picker display to black
+        redrawCanvas();
+        saveState(); // Save the state change
+    } else {
+        console.log('No fillable shape selected to remove color from.');
+    }
+});
 
 // --- MODIFIED Canvas Interaction ---
 canvas.addEventListener('mousedown', (e) => {
@@ -533,9 +558,9 @@ canvas.addEventListener('mousedown', (e) => {
         shapes.splice(shapes.indexOf(selectedShape), 1);
         shapes.push(selectedShape);
 
-        // Update color picker
-        colorPicker.value = selectedShape.color;
-        currentColor = selectedShape.color;
+        // Update color picker to show the shape's color, or black if it has no fill
+        colorPicker.value = selectedShape.color || '#000000';
+        // Don't update currentColor here, only when picker is used or shape created
 
         console.log('Selected existing shape for dragging:', selectedShape);
         redrawCanvas();
@@ -878,7 +903,7 @@ saveJpgButton.addEventListener('click', () => { saveCanvasToFile('jpg'); });
 
 // --- Initial Draw & State ---
 canvas.style.backgroundColor = '#f0f0f0';
-colorPicker.value = currentColor;
+colorPicker.value = '#000000'; // Set HTML picker default to black, even if internal currentColor is null
 saveState(); // Save the initial empty state
 redrawCanvas();
 // updateUndoRedoButtons(); // Removed call
