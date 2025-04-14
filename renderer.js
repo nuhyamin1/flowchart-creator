@@ -54,6 +54,9 @@ function setActiveTool(toolType) {
     if (toolType === 'rectangle' || toolType === 'circle' || toolType === 'diamond' || toolType === 'line') {
         canvas.style.cursor = 'crosshair';
         currentCursor = 'crosshair';
+    } else if (toolType === 'text') { // NEW: Text tool cursor
+        canvas.style.cursor = 'text';
+        currentCursor = 'text';
     } else { // default or other tools
         canvas.style.cursor = 'default';
         currentCursor = 'default';
@@ -415,6 +418,66 @@ class Line extends Shape {
     }
 } // Correctly close the Line class
 
+class Text extends Shape {
+    constructor(x, y, text, color, fontSize = 16, fontFamily = 'Arial') {
+        super(x, y, color || '#000000'); // Default text color to black if none provided
+        this.text = text;
+        this.fontSize = fontSize;
+        this.fontFamily = fontFamily;
+        this.type = 'text';
+        // Calculate initial width/height for isInside checks (approximate)
+        this.updateDimensions();
+    }
+
+    // Helper to update width/height based on text content and font
+    updateDimensions() {
+        ctx.font = `${this.fontSize}px ${this.fontFamily}`;
+        const metrics = ctx.measureText(this.text);
+        this.width = metrics.width;
+        // Approximate height based on font size
+        this.height = this.fontSize; // A bit simplistic, might need refinement
+        // Adjust x,y to be top-left based on common text rendering
+        // (constructor x,y is typically baseline start)
+        // Let's keep x,y as the top-left for consistency with other shapes for now.
+    }
+
+    getCenter() {
+        // Center based on calculated width/height
+        return { x: this.x + this.width / 2, y: this.y + this.height / 2 };
+    }
+
+    draw(ctx) {
+        // Text doesn't rotate in this simple implementation, so no save/restore needed for rotation
+        ctx.fillStyle = this.color;
+        ctx.font = `${this.fontSize}px ${this.fontFamily}`;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top'; // Render text starting from the top-left corner (this.x, this.y)
+        ctx.fillText(this.text, this.x, this.y);
+    }
+
+    isInside(mouseX, mouseY) {
+        // Simple bounding box check based on calculated dimensions
+        return mouseX >= this.x && mouseX <= this.x + this.width &&
+               mouseY >= this.y && mouseY <= this.y + this.height;
+    }
+
+    // Text objects won't have resize/rotation handles in this version
+    getHandles() {
+        return [];
+    }
+
+    clone() {
+        const cloned = super.clone();
+        cloned.text = this.text;
+        cloned.fontSize = this.fontSize;
+        cloned.fontFamily = this.fontFamily;
+        cloned.width = this.width;
+        cloned.height = this.height;
+        delete cloned.angle; // Text doesn't use angle property
+        return cloned;
+    }
+}
+
 
 // --- NEW Helper Function to get handle at mouse position ---
 function getHandleAt(mouseX, mouseY) {
@@ -768,8 +831,8 @@ canvas.addEventListener('mousedown', (e) => {
         const circleCenterX = mouseX;
         const circleCenterY = mouseY;
 
-        // Only add shape if a shape tool (not line or default) is selected
-        if (currentShapeType !== 'line' && currentShapeType !== 'default') {
+        // Only add shape if a shape tool (not line, text, or default) is selected
+        if (currentShapeType !== 'line' && currentShapeType !== 'default' && currentShapeType !== 'text') {
              switch (currentShapeType) {
                  case 'rectangle':
                      newShape = new Rectangle(shapeX, shapeY, defaultWidth, defaultHeight, currentColor);
@@ -783,14 +846,24 @@ canvas.addEventListener('mousedown', (e) => {
              }
              if (newShape) {
                  shapes.push(newShape);
-                 // selectedShape = newShape; // Don't select immediately after creation
                  console.log('Added new shape:', newShape);
                  saveState(); // Save state after adding shape
                  setActiveTool('default'); // Reset tool to default after creating shape
-             } else {
-                 // This case might not be reachable if default is handled above
-                 console.log('Clicked background, deselected shape (no tool active?).');
              }
+        } else if (currentShapeType === 'text') {
+            // NEW: Handle text tool click
+            const textContent = prompt("Enter text:", "Text");
+            if (textContent) { // Only add if user entered text
+                // Use mouseX, mouseY directly as the top-left starting point for text
+                newShape = new Text(mouseX, mouseY, textContent, currentColor || '#000000'); // Use current color or black
+                shapes.push(newShape);
+                console.log('Added new text:', newShape);
+                saveState(); // Save state after adding text
+                setActiveTool('default'); // Reset tool to default after adding text
+            } else {
+                console.log('Text input cancelled.');
+                setActiveTool('default'); // Reset tool even if cancelled
+            }
         } else {
              // If line or default tool is active and clicked background, just deselect
              console.log(`Clicked background with ${currentShapeType} tool, deselected shape.`);
@@ -798,6 +871,41 @@ canvas.addEventListener('mousedown', (e) => {
         redrawCanvas();
     }
 });
+
+// --- NEW: Double-click listener for editing text ---
+canvas.addEventListener('dblclick', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+
+    // Find the top-most text shape that was double-clicked
+    let clickedTextShape = null;
+    for (let i = shapes.length - 1; i >= 0; i--) {
+        const shape = shapes[i];
+        // Check if it's a Text object and the click is inside
+        if (shape instanceof Text && shape.isInside(mouseX, mouseY)) {
+            clickedTextShape = shape;
+            break;
+        }
+    }
+
+    if (clickedTextShape) {
+        console.log('Editing text:', clickedTextShape);
+        const newText = prompt("Edit text:", clickedTextShape.text);
+        if (newText !== null && newText !== clickedTextShape.text) { // Only update if text changed and not cancelled
+            clickedTextShape.text = newText;
+            clickedTextShape.updateDimensions(); // Recalculate width/height
+            redrawCanvas();
+            saveState(); // Save the change
+            console.log('Text updated to:', newText);
+        } else if (newText === null) {
+            console.log('Text edit cancelled.');
+        } else {
+            console.log('Text not changed.');
+        }
+    }
+});
+// ----------------------------------------------------
 
 canvas.addEventListener('mousemove', (e) => {
     const rect = canvas.getBoundingClientRect();
@@ -990,6 +1098,8 @@ canvas.addEventListener('mousemove', (e) => {
                  // Hovering over empty space
                  if (currentShapeType === 'rectangle' || currentShapeType === 'circle' || currentShapeType === 'diamond' || currentShapeType === 'line') {
                      cursor = 'crosshair'; // Show crosshair if a drawing tool is active
+                 } else if (currentShapeType === 'text') {
+                     cursor = 'text'; // Show text cursor for text tool
                  } else {
                      cursor = 'default'; // Otherwise, default arrow
                  }
