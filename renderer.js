@@ -31,6 +31,50 @@ let activeHandle = null; // Stores the type ('top-left', 'bottom-right', etc.) o
 const handleSize = 8; // Size of the square resize handles
 let currentCursor = 'default'; // To manage cursor style changes
 
+
+// --- Helper Function to Set Active Tool ---
+function setActiveTool(toolType) {
+    currentShapeType = toolType;
+    console.log(`Selected shape type: ${toolType}`);
+
+    // Update toolbar UI
+    document.querySelectorAll('#toolbar .shape.selected').forEach(el => el.classList.remove('selected'));
+    const toolButton = document.querySelector(`#toolbar .shape[data-shape="${toolType}"]`);
+    if (toolButton) {
+        toolButton.classList.add('selected');
+    } else {
+        console.warn(`Toolbar button for tool type "${toolType}" not found.`);
+    }
+
+    // Update cursor based on tool
+    if (toolType === 'rectangle' || toolType === 'circle' || toolType === 'diamond' || toolType === 'line') {
+        canvas.style.cursor = 'crosshair';
+        currentCursor = 'crosshair';
+    } else { // default or other tools
+        canvas.style.cursor = 'default';
+        currentCursor = 'default';
+    }
+
+    // Deselect shape if switching to a drawing tool or default
+    if (toolType !== 'default' || selectedShape) {
+        selectedShape = null;
+        redrawCanvas(); // Redraw to remove selection highlights
+    }
+
+    // Cancel ongoing actions if switching tool
+    if (isDrawingLine && toolType !== 'line') {
+        isDrawingLine = false;
+        redrawCanvas();
+        console.log('Line drawing cancelled by switching tool.');
+    }
+    if (isResizing) {
+        isResizing = false;
+        activeHandle = null;
+        console.log('Resizing cancelled by switching tool.');
+    }
+}
+
+
 // --- Shape Classes --- (Keep Rectangle, Circle, Diamond, Line as before)
 class Shape {
     constructor(x, y, color) {
@@ -401,27 +445,11 @@ function redrawCanvas() {
 
 // --- Event Listeners ---
 
-// Toolbar shape selection (Mostly unchanged)
+// Toolbar shape selection
 toolbar.addEventListener('click', (e) => {
     if (e.target.classList.contains('shape')) {
-        if (isDrawingLine && e.target.getAttribute('data-shape') !== 'line') {
-             isDrawingLine = false;
-             redrawCanvas();
-             console.log('Line drawing cancelled by switching tool.');
-        }
-        // Stop resizing if switching tool
-        if (isResizing) {
-            isResizing = false;
-            activeHandle = null;
-             console.log('Resizing cancelled by switching tool.');
-        }
-
-        document.querySelectorAll('.shape.selected').forEach(el => el.classList.remove('selected'));
-        e.target.classList.add('selected');
-        currentShapeType = e.target.getAttribute('data-shape');
-        console.log(`Selected shape type: ${currentShapeType}`);
-        selectedShape = null;
-        redrawCanvas();
+        const toolType = e.target.getAttribute('data-shape');
+        setActiveTool(toolType);
     }
 });
 
@@ -539,9 +567,10 @@ canvas.addEventListener('mousedown', (e) => {
              }
              if (newShape) {
                  shapes.push(newShape);
-                 selectedShape = newShape; // Select the new shape
+                 // selectedShape = newShape; // Don't select immediately after creation
                  console.log('Added new shape:', newShape);
                  saveState(); // Save state after adding shape
+                 setActiveTool('default'); // Reset tool to default after creating shape
              } else {
                  // This case might not be reachable if default is handled above
                  console.log('Clicked background, deselected shape (no tool active?).');
@@ -689,13 +718,13 @@ canvas.addEventListener('mousemove', (e) => {
              }
              if (hoveredShape) {
                  cursor = 'move'; // Indicate shape is draggable
-             } else if (currentShapeType === 'line') {
-                 cursor = 'crosshair'; // For drawing new line
-             } else if (currentShapeType === 'default') {
-                 cursor = 'default'; // Explicitly default for the default tool
              } else {
-                 // For other shape tools when not hovering over anything
-                 cursor = 'crosshair'; // Or 'default', depending on desired behavior
+                 // Hovering over empty space
+                 if (currentShapeType === 'rectangle' || currentShapeType === 'circle' || currentShapeType === 'diamond' || currentShapeType === 'line') {
+                     cursor = 'crosshair'; // Show crosshair if a drawing tool is active
+                 } else {
+                     cursor = 'default'; // Otherwise, default arrow
+                 }
              }
         }
     }
@@ -742,6 +771,9 @@ canvas.addEventListener('mouseup', (e) => {
          }
         isDrawingLine = false;
         redrawCanvas();
+        if (stateChanged) { // Only reset tool if a line was actually added
+            setActiveTool('default'); // Reset tool after finishing line draw
+        }
     }
 
     // Save state if any action modified shapes
@@ -749,9 +781,10 @@ canvas.addEventListener('mouseup', (e) => {
         saveState();
     }
 
-     // Ensure cursor resets if mouseup happens outside canvas or over UI elements
-     canvas.style.cursor = 'default';
-     currentCursor = 'default';
+    // Cursor should be handled by mousemove or setActiveTool now.
+    // No longer need to force reset here.
+    // canvas.style.cursor = 'default';
+    // currentCursor = 'default';
 });
 
 canvas.addEventListener('mouseleave', () => {
@@ -850,4 +883,4 @@ saveState(); // Save the initial empty state
 redrawCanvas();
 // updateUndoRedoButtons(); // Removed call
 console.log('Renderer process loaded.');
-document.querySelector('.shape[data-shape="rectangle"]').classList.add('selected');
+setActiveTool('default'); // Start with the default selection tool active
