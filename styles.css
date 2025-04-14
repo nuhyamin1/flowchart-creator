@@ -101,3 +101,46 @@ body {
     background-color: #fff; /* White background for the drawing area */
     /* Add max-width/max-height if needed, or let it be defined by width/height attributes */
 }
+
+/* --- NEW: Text Formatting Controls --- */
+.text-format-controls {
+    display: flex;
+    flex-wrap: wrap; /* Allow wrapping if needed */
+    justify-content: center;
+    align-items: center;
+    width: 90%; /* Match other toolbar elements */
+    margin-bottom: 10px;
+}
+
+.text-format-controls label {
+    margin-right: 5px;
+}
+
+.text-format-controls select {
+    flex-grow: 1; /* Allow select to take space */
+    margin-right: 10px;
+    margin-bottom: 5px; /* Space below if wraps */
+    min-width: 80px; /* Prevent getting too small */
+}
+
+.style-button, .align-button {
+    padding: 5px 8px;
+    margin: 2px;
+    border: 1px solid #ccc;
+    background-color: #fff;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+    min-width: 30px; /* Ensure buttons have some width */
+    text-align: center;
+}
+
+.style-button:hover, .align-button:hover {
+    background-color: #eee;
+}
+
+.style-button.selected, .align-button.selected {
+    background-color: #d0eaff;
+    border-color: #007bff;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+/* --- END: Text Formatting Controls --- */

@@ -6,8 +6,16 @@ const canvas = document.getElementById('flowchartCanvas');
 const ctx = canvas.getContext('2d');
 const toolbar = document.getElementById('toolbar');
 const colorPicker = document.getElementById('colorPicker');
-const removeColorButton = document.getElementById('removeColorButton'); // Get reference to the new button
-// Removed savePngButton and saveJpgButton references
+const removeColorButton = document.getElementById('removeColorButton');
+// --- NEW: Text Formatting Elements ---
+const fontSelector = document.getElementById('fontSelector');
+const boldButton = document.getElementById('boldButton');
+const italicButton = document.getElementById('italicButton');
+const underlineButton = document.getElementById('underlineButton');
+const alignLeftButton = document.getElementById('alignLeftButton');
+const alignCenterButton = document.getElementById('alignCenterButton');
+const alignRightButton = document.getElementById('alignRightButton');
+// ------------------------------------
 
 let shapes = []; // Array to hold all shape objects
 let history = []; // For Undo/Redo
@@ -422,11 +430,15 @@ class Line extends Shape {
 } // Correctly close the Line class
 
 class Text extends Shape {
-    constructor(x, y, text, color, fontSize = 16, fontFamily = 'Arial') {
+    constructor(x, y, text, color, fontSize = 16, fontFamily = 'Arial', fontWeight = 'normal', fontStyle = 'normal', textDecoration = 'none', textAlign = 'left') {
         super(x, y, color || '#000000'); // Default text color to black if none provided
         this.text = text;
         this.fontSize = fontSize;
         this.fontFamily = fontFamily;
+        this.fontWeight = fontWeight; // 'normal', 'bold'
+        this.fontStyle = fontStyle;   // 'normal', 'italic'
+        this.textDecoration = textDecoration; // 'none', 'underline'
+        this.textAlign = textAlign; // 'left', 'center', 'right'
         this.type = 'text';
         // Calculate initial width/height for isInside checks (approximate)
         this.updateDimensions();
@@ -434,14 +446,12 @@ class Text extends Shape {
 
     // Helper to update width/height based on text content and font
     updateDimensions() {
-        ctx.font = `${this.fontSize}px ${this.fontFamily}`;
+        // Construct font string with style and weight
+        ctx.font = `${this.fontStyle} ${this.fontWeight} ${this.fontSize}px ${this.fontFamily}`;
         const metrics = ctx.measureText(this.text);
         this.width = metrics.width;
         // Approximate height based on font size
-        this.height = this.fontSize; // A bit simplistic, might need refinement
-        // Adjust x,y to be top-left based on common text rendering
-        // (constructor x,y is typically baseline start)
-        // Let's keep x,y as the top-left for consistency with other shapes for now.
+        this.height = this.fontSize; // Keep this simple for now
     }
 
     getCenter() {
@@ -450,12 +460,60 @@ class Text extends Shape {
     }
 
     draw(ctx) {
-        // Text doesn't rotate in this simple implementation, so no save/restore needed for rotation
+        // Text doesn't rotate in this simple implementation
         ctx.fillStyle = this.color;
-        ctx.font = `${this.fontSize}px ${this.fontFamily}`;
-        ctx.textAlign = 'left';
+        // Construct font string with style and weight
+        ctx.font = `${this.fontStyle} ${this.fontWeight} ${this.fontSize}px ${this.fontFamily}`;
+        ctx.textAlign = this.textAlign; // Use the shape's alignment property
         ctx.textBaseline = 'top'; // Render text starting from the top-left corner (this.x, this.y)
-        ctx.fillText(this.text, this.x, this.y);
+
+        // Adjust draw position based on alignment
+        let drawX = this.x;
+        if (this.textAlign === 'center') {
+            drawX = this.x + this.width / 2;
+        } else if (this.textAlign === 'right') {
+            drawX = this.x + this.width;
+        }
+
+        ctx.fillText(this.text, drawX, this.y);
+
+        // --- Manual Underline ---
+        if (this.textDecoration === 'underline') {
+            // Recalculate dimensions just in case (might be redundant if updateDimensions called recently)
+            // this.updateDimensions(); // Let's assume dimensions are up-to-date from resize/creation
+            ctx.strokeStyle = this.color; // Use text color for underline
+            ctx.lineWidth = Math.max(1, Math.floor(this.fontSize / 16)); // Basic underline thickness scaling
+
+            let lineY = this.y + this.height + 1; // Position slightly below baseline (top + height)
+            let lineStartX = this.x;
+            let lineEndX = this.x + this.width;
+
+            // Adjust underline position based on alignment
+            if (this.textAlign === 'center') {
+                // For center, the underline should span the actual text width, centered within the box
+                // Re-measure text with current settings to get precise width
+                ctx.font = `${this.fontStyle} ${this.fontWeight} ${this.fontSize}px ${this.fontFamily}`;
+                const metrics = ctx.measureText(this.text);
+                const textWidth = metrics.width;
+                lineStartX = this.x + (this.width - textWidth) / 2;
+                lineEndX = lineStartX + textWidth;
+            } else if (this.textAlign === 'right') {
+                 // For right, the underline should span the actual text width, aligned right
+                 ctx.font = `${this.fontStyle} ${this.fontWeight} ${this.fontSize}px ${this.fontFamily}`;
+                 const metrics = ctx.measureText(this.text);
+                 const textWidth = metrics.width;
+                 lineStartX = this.x + this.width - textWidth;
+                 lineEndX = this.x + this.width;
+            }
+            // For 'left', it's already correct (this.x to this.x + this.width)
+
+            ctx.beginPath();
+            ctx.moveTo(lineStartX, lineY);
+            ctx.lineTo(lineEndX, lineY);
+            ctx.stroke();
+            ctx.lineWidth = 1; // Reset line width
+        }
+        // --- End Manual Underline ---
     }
 
     isInside(mouseX, mouseY) {
@@ -494,6 +552,12 @@ class Text extends Shape {
         cloned.fontFamily = this.fontFamily;
         cloned.width = this.width;
         cloned.height = this.height;
+        // --- NEW: Clone text style properties ---
+        cloned.fontWeight = this.fontWeight;
+        cloned.fontStyle = this.fontStyle;
+        cloned.textDecoration = this.textDecoration;
+        cloned.textAlign = this.textAlign;
+        // ---------------------------------------
         delete cloned.angle; // Text doesn't use angle property
         return cloned;
     }
@@ -741,6 +805,77 @@ removeColorButton.addEventListener('click', () => {
     }
 });
 
+// --- NEW: Event Listeners for Text Formatting Controls ---
+
+// Font selection
+fontSelector.addEventListener('change', (e) => {
+    if (selectedShape instanceof Text) {
+        selectedShape.fontFamily = e.target.value;
+        selectedShape.updateDimensions(); // Recalculate width/height
+        redrawCanvas();
+        saveState();
+        console.log(`Set font family to: ${e.target.value}`);
+    }
+});
+
+// Bold button
+boldButton.addEventListener('click', () => {
+    if (selectedShape instanceof Text) {
+        selectedShape.fontWeight = selectedShape.fontWeight === 'bold' ? 'normal' : 'bold';
+        boldButton.classList.toggle('selected', selectedShape.fontWeight === 'bold'); // Update button style
+        selectedShape.updateDimensions();
+        redrawCanvas();
+        saveState();
+        console.log(`Set font weight to: ${selectedShape.fontWeight}`);
+    }
+});
+
+// Italic button
+italicButton.addEventListener('click', () => {
+    if (selectedShape instanceof Text) {
+        selectedShape.fontStyle = selectedShape.fontStyle === 'italic' ? 'normal' : 'italic';
+        italicButton.classList.toggle('selected', selectedShape.fontStyle === 'italic'); // Update button style
+        selectedShape.updateDimensions();
+        redrawCanvas();
+        saveState();
+        console.log(`Set font style to: ${selectedShape.fontStyle}`);
+    }
+});
+
+// Underline button
+underlineButton.addEventListener('click', () => {
+    if (selectedShape instanceof Text) {
+        selectedShape.textDecoration = selectedShape.textDecoration === 'underline' ? 'none' : 'underline';
+        underlineButton.classList.toggle('selected', selectedShape.textDecoration === 'underline'); // Update button style
+        // No dimension update needed for underline, just redraw
+        redrawCanvas();
+        saveState();
+        console.log(`Set text decoration to: ${selectedShape.textDecoration}`);
+    }
+});
+
+// Alignment buttons
+[alignLeftButton, alignCenterButton, alignRightButton].forEach(button => {
+    button.addEventListener('click', (e) => {
+        if (selectedShape instanceof Text) {
+            const newAlign = e.target.getAttribute('data-align');
+            selectedShape.textAlign = newAlign;
+
+            // Update button styles
+            document.querySelectorAll('.align-button.selected').forEach(btn => btn.classList.remove('selected'));
+            e.target.classList.add('selected');
+
+            // No dimension update needed for alignment, just redraw
+            redrawCanvas();
+            saveState();
+            console.log(`Set text align to: ${newAlign}`);
+        }
+    });
+});
+
+// --- END: Text Formatting Listeners ---
+
+
 // --- MODIFIED Canvas Interaction ---
 canvas.addEventListener('mousedown', (e) => {
     const rect = canvas.getBoundingClientRect();
@@ -839,14 +974,25 @@ canvas.addEventListener('mousedown', (e) => {
         shapes.splice(shapes.indexOf(selectedShape), 1);
         shapes.push(selectedShape);
 
-        // Update color picker to show the shape's color, or black if it has no fill
-        colorPicker.value = selectedShape.color || '#000000';
-        // Don't update currentColor here, only when picker is used or shape created
+         // Update color picker to show the shape's color, or black if it has no fill
+         colorPicker.value = selectedShape.color || '#000000';
+         // Don't update currentColor here, only when picker is used or shape created
 
-         console.log('Selected existing shape:', selectedShape); // Log message updated
-         redrawCanvas(); // Restore redraw here to show selection immediately
+         // --- NEW: Update text format controls if a Text shape is selected ---
+         if (selectedShape instanceof Text) {
+             fontSelector.value = selectedShape.fontFamily;
+             boldButton.classList.toggle('selected', selectedShape.fontWeight === 'bold');
+             italicButton.classList.toggle('selected', selectedShape.fontStyle === 'italic');
+             underlineButton.classList.toggle('selected', selectedShape.textDecoration === 'underline');
+             document.querySelectorAll('.align-button.selected').forEach(btn => btn.classList.remove('selected'));
+             document.querySelector(`.align-button[data-align="${selectedShape.textAlign}"]`)?.classList.add('selected');
+         }
+         // --------------------------------------------------------------------
 
-     } else {
+          console.log('Selected existing shape:', selectedShape); // Log message updated
+          redrawCanvas(); // Restore redraw here to show selection immediately
+
+      } else {
         // Priority 4: Clicked on background - Add new shape or deselect
         initialMouseDownPos = null; // Not dragging a shape
         selectedShape = null; // Deselect first
@@ -1538,4 +1684,40 @@ saveState(); // Save the initial empty state
 redrawCanvas();
 // updateUndoRedoButtons(); // Removed call
 console.log('Renderer process loaded.');
+
+// --- NEW: Function to load system fonts ---
+async function loadSystemFonts() {
+    console.log('Requesting system fonts...');
+    try {
+        const result = await window.electronAPI.getSystemFonts();
+        if (result.success && result.fonts) {
+            console.log(`Received ${result.fonts.length} fonts.`);
+            fontSelector.innerHTML = ''; // Clear placeholder/previous options
+            // Add a default option maybe? Or just the list.
+            result.fonts.forEach(font => {
+                // Basic filtering for common system/web fonts if desired
+                // if (!font.startsWith('.') && !font.startsWith('@')) {
+                    const option = document.createElement('option');
+                    option.value = font;
+                    option.textContent = font;
+                    // Set initial selection if it matches a common default like Arial
+                    if (font.toLowerCase() === 'arial') {
+                        option.selected = true;
+                    }
+                    fontSelector.appendChild(option);
+                // }
+            });
+            console.log('Font selector populated.');
+        } else {
+            console.error('Failed to load fonts:', result.error);
+            fontSelector.innerHTML = '<option value="Arial">Arial (Default)</option>'; // Fallback
+        }
+    } catch (error) {
+        console.error('Error calling getSystemFonts:', error);
+        fontSelector.innerHTML = '<option value="Arial">Arial (Default)</option>'; // Fallback
+    }
+}
+// -----------------------------------------
+
 setActiveTool('default'); // Start with the default selection tool active
+loadSystemFonts(); // Load fonts when the renderer starts

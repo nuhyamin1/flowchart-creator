@@ -1,7 +1,7 @@
 {
   "name": "flowchart-app",
   "version": "1.0.0",
-  "description": "A simple desktop flowchart application",
+  "description": "",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -10,8 +10,10 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "description": "",
   "devDependencies": {
     "electron": "^35.1.5"
+  },
+  "dependencies": {
+    "font-list": "^1.5.1"
   }
 }

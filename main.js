@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, dialog, Menu } = require('electron'); // Added Menu
 const path = require('path');
 const fs = require('fs'); // Import Node.js fs module
+const fontList = require('font-list'); // Added for getting system fonts
 
 let mainWindow; // Make mainWindow accessible for menu actions
 
@@ -17,7 +18,23 @@ function createWindow () {
     }
   });
 
-  // and load the index.html of the app.
+  // --- NEW: Handle request for system fonts ---
+  ipcMain.handle('get-system-fonts', async () => {
+    try {
+      const fonts = await fontList.getFonts();
+      // Optional: Filter or clean up font names if needed
+      // e.g., remove duplicates or specific unwanted fonts
+      const uniqueFonts = [...new Set(fonts)].sort(); // Get unique names and sort
+      console.log(`Found ${uniqueFonts.length} system fonts.`);
+      return { success: true, fonts: uniqueFonts };
+    } catch (error) {
+      console.error('Failed to get system fonts:', error);
+      return { success: false, error: error.message };
+    }
+  });
+  // -----------------------------------------
+
+  // Load the index.html of the app.
   mainWindow.loadFile('index.html');
 
   // Open the DevTools (optional)
