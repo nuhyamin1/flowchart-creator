@@ -537,17 +537,28 @@ function redrawCanvas() {
 
     // Draw selection highlight and handles
     if (selectedShape) {
-        // Draw main selection highlight (thicker or different color)
+        const center = selectedShape.getCenter();
+        const angle = selectedShape.angle;
+
+        // --- Draw Rotated Selection Highlight ---
+        ctx.save();
+        ctx.translate(center.x, center.y);
+        ctx.rotate(angle);
+        ctx.translate(-center.x, -center.y);
+
         ctx.strokeStyle = 'blue';
         ctx.lineWidth = 2;
+        ctx.setLineDash([5, 3]); // Optional: Dashed line for selection
+
         if (selectedShape instanceof Rectangle) {
              ctx.strokeRect(selectedShape.x, selectedShape.y, selectedShape.width, selectedShape.height);
          } else if (selectedShape instanceof Circle) {
              ctx.beginPath();
+             // Draw the circle centered at its x,y (which is its center)
              ctx.arc(selectedShape.x, selectedShape.y, selectedShape.radius, 0, Math.PI * 2);
              ctx.stroke();
          } else if (selectedShape instanceof Diamond) {
-             // Re-draw diamond outline thicker/blue
+             // Draw diamond outline relative to its top-left (x,y)
              ctx.beginPath();
              ctx.moveTo(selectedShape.x + selectedShape.width / 2, selectedShape.y); // Top point
              ctx.lineTo(selectedShape.x + selectedShape.width, selectedShape.y + selectedShape.height / 2); // Right point
@@ -555,17 +566,16 @@ function redrawCanvas() {
              ctx.lineTo(selectedShape.x, selectedShape.y + selectedShape.height / 2); // Left point
              ctx.closePath();
              ctx.stroke();
-         } else if (selectedShape instanceof Line) {
-            // Draw line highlight
-            ctx.beginPath();
-            ctx.moveTo(selectedShape.x1, selectedShape.y1);
-            ctx.lineTo(selectedShape.x2, selectedShape.y2);
-            // Stroke is already blue/thick from settings above
-            ctx.stroke();
          }
+         // Lines don't have a separate highlight drawn here, their main draw is sufficient.
+         // We could add endpoint markers if desired.
+
+        ctx.restore(); // Restore context after drawing rotated highlight
+        ctx.setLineDash([]); // Reset line dash
+        // --- End Rotated Selection Highlight ---
 
 
-        // --- NEW: Draw Resize Handles ---
+        // --- Draw Handles (already correctly positioned) ---
         const handles = selectedShape.getHandles();
         if (handles.length > 0) {
              ctx.fillStyle = 'white'; // Handle fill color
