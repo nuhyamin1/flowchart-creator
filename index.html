@@ -9,32 +9,32 @@
 </head>
 <body>
     <div id="toolbar">
-        <h2>Shapes</h2>
-        <div class="shape" data-shape="rectangle" title="Rectangle">
-            <img src="icons/rectangle.svg" alt="Rectangle Tool">
-        </div>
-        <div class="shape" data-shape="circle" title="Circle">
-            <img src="icons/circle.svg" alt="Circle Tool">
-        </div>
-        <div class="shape" data-shape="diamond" title="Diamond">
-            <img src="icons/diamond.svg" alt="Diamond Tool">
-        </div>
-        <div class="shape" data-shape="line" title="Line">
-            <img src="icons/line.svg" alt="Line Tool">
-        </div>
-        <div class="shape" data-shape="default" title="Default Cursor">
-            <img src="icons/cursor.svg" alt="Default Cursor Tool">
-        </div>
-        <div class="shape" data-shape="text" title="Text Tool" style="font-size: 20px; text-align: center; line-height: 24px; font-weight: bold;">
-            T
+        <div class="tool-group shape-tools">
+            <div class="shape" data-shape="rectangle" title="Rectangle">
+                <img src="icons/rectangle.svg" alt="Rectangle Tool">
+            </div>
+            <div class="shape" data-shape="circle" title="Circle">
+                <img src="icons/circle.svg" alt="Circle Tool">
+            </div>
+            <div class="shape" data-shape="diamond" title="Diamond">
+                <img src="icons/diamond.svg" alt="Diamond Tool">
+            </div>
+            <div class="shape" data-shape="line" title="Line">
+                <img src="icons/line.svg" alt="Line Tool">
+            </div>
+            <div class="shape" data-shape="default" title="Default Cursor">
+                <img src="icons/cursor.svg" alt="Default Cursor Tool">
+            </div>
+            <div class="shape" data-shape="text" title="Text Tool" style="font-size: 20px; text-align: center; line-height: 24px; font-weight: bold;">
+                T
+            </div>
         </div>
 
-        <h2>Colors</h2>
-        <input type="color" id="colorPicker" value="#000000">
-        <button id="removeColorButton">Remove Fill</button>
+        <div class="tool-group color-tools">
+            <input type="color" id="colorPicker" value="#000000" title="Fill Color">
+            <button id="removeColorButton" title="Remove Fill">Remove Fill</button>
+        </div>
 
-        <!-- NEW: Text Formatting Tools -->
-        <h2>Text Format</h2>
         <div class="tool-group text-format-controls">
           <label for="fontSelector" style="margin-right: 5px;">Font:</label>
           <select id="fontSelector" style="max-width: 150px;">
@@ -47,10 +47,8 @@
           <button id="alignCenterButton" class="align-button" data-align="center" title="Align Center">Center</button>
           <button id="alignRightButton" class="align-button" data-align="right" title="Align Right">Right</button>
         </div>
-        <!-- END: Text Formatting Tools -->
 
-        <h2>Actions</h2>
-        <!-- Buttons removed, functionality moved to File menu -->
+        <!-- Actions group removed as per original comment -->
     </div>
 
     <div id="canvas-container">

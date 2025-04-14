@@ -1,141 +1,138 @@
-/* Keep your existing body, #toolbar, #toolbar h2, etc. styles */
-
+/* Base body styles */
 body {
     font-family: sans-serif;
-    display: flex;
     height: 100vh;
     margin: 0;
+    display: flex; /* Use flex for overall layout */
+    flex-direction: column; /* Stack toolbar above canvas */
     overflow: hidden; /* Prevent body scrollbars */
 }
 
+/* Top Toolbar Styles */
 #toolbar {
-    width: 150px; /* You might adjust this width if needed */
-    padding: 15px;
-    border-right: 1px solid #ccc;
+    height: 50px; /* Fixed height for the top bar */
+    padding: 5px 15px; /* Vertical and horizontal padding */
+    border-bottom: 1px solid #ccc; /* Border at the bottom */
     background-color: #f8f8f8;
-    overflow-y: auto; /* Allow toolbar scrolling if content overflows */
-    display: flex; /* Use flexbox for easier layout */
-    flex-direction: column; /* Stack items vertically */
-    align-items: center; /* Center items like headers horizontally */
+    display: flex; /* Horizontal layout for items */
+    flex-direction: row;
+    align-items: center; /* Vertically center items */
+    flex-shrink: 0; /* Prevent toolbar shrinking */
+    overflow-x: auto; /* Allow horizontal scrolling if needed */
+    overflow-y: hidden;
 }
 
-#toolbar h2 {
-    margin-top: 15px; /* Add some space above headers */
-    margin-bottom: 10px;
-    font-size: 1em;
-    border-bottom: 1px solid #eee;
-    padding-bottom: 5px;
-    width: 90%; /* Make header line slightly less wide */
-    text-align: center; /* Center header text */
+/* Tool Group Styles */
+.tool-group {
+    display: flex;
+    align-items: center; /* Vertically align items within the group */
+    padding: 0 10px; /* Padding inside groups */
+    margin-right: 10px; /* Space between groups */
+    height: 100%; /* Make group take full toolbar height */
+    border-right: 1px solid #ddd; /* Separator line */
+    white-space: nowrap; /* Prevent wrapping within a group */
 }
-#toolbar h2:first-of-type {
-    margin-top: 0; /* No top margin for the very first header */
+.tool-group:last-child {
+    border-right: none; /* No separator for the last group */
+    margin-right: 0;
 }
 
-
-/* Style for the icon buttons */
+/* Style for the shape icon buttons */
 #toolbar .shape {
-    width: 40px;  /* Set a fixed width */
-    height: 40px; /* Set a fixed height */
-    padding: 5px; /* Adjust padding as needed */
-    margin-bottom: 8px; /* Space between icons */
+    width: 32px;  /* Smaller icons for top bar */
+    height: 32px; /* Smaller icons for top bar */
+    padding: 4px;
+    margin-right: 6px; /* Space between icons horizontally */
     border: 1px solid #ddd;
-    border-radius: 5px; /* Slightly more rounded corners */
+    border-radius: 4px;
     cursor: pointer;
     background-color: #fff;
-    user-select: none; /* Prevent text selection */
-    display: flex; /* Use flexbox to center the icon */
-    justify-content: center; /* Center icon horizontally */
-    align-items: center; /* Center icon vertically */
-    transition: background-color 0.2s ease, border-color 0.2s ease; /* Smooth transitions */
+    user-select: none;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    transition: background-color 0.2s ease, border-color 0.2s ease;
+    flex-shrink: 0; /* Prevent icons from shrinking */
+}
+#toolbar .shape:last-child {
+    margin-right: 0; /* No margin for the last shape in a group */
 }
 
 #toolbar .shape img {
-    max-width: 80%;  /* Prevent icon from touching the borders */
-    max-height: 80%; /* Prevent icon from touching the borders */
-    display: block; /* Remove potential extra space below image */
+    max-width: 24px;
+    max-height: 24px;
+    display: block;
 }
 
 #toolbar .shape:hover {
     background-color: #eee;
-    border-color: #bbb; /* Darker border on hover */
+    border-color: #bbb;
 }
 
 #toolbar .shape.selected {
     border-color: #007bff;
     background-color: #e7f3ff;
-    /* Optional: Add a subtle shadow or thicker border for selected */
     box-shadow: 0 0 3px rgba(0, 123, 255, 0.5);
 }
 
-
+/* Color Picker Styles */
 #toolbar input[type="color"] {
-    width: 80%; /* Adjust width */
-    margin-bottom: 15px;
-    box-sizing: border-box; /* Include padding/border in width */
-    align-self: center; /* Center the color picker */
-}
-
-#toolbar button {
-    display: block;
-    width: 90%; /* Make buttons slightly less wide */
-    padding: 8px;
-    margin-bottom: 10px;
+    height: 28px; /* Match button height roughly */
+    width: 40px; /* Fixed width */
+    margin: 0 5px;
+    padding: 0 2px;
+    box-sizing: border-box;
+    vertical-align: middle;
+    border: 1px solid #ccc;
     cursor: pointer;
-    align-self: center; /* Center the buttons */
 }
 
-
-#canvas-container {
-    flex-grow: 1; /* Take remaining space */
-    padding: 15px;
-    display: flex; /* Center canvas if needed, or manage layout */
-    justify-content: center; /* Example: Center horizontally */
-    align-items: flex-start; /* Example: Align top */
-    overflow: auto; /* Allow scrolling if canvas is larger than container */
-    background-color: #e9e9e9; /* Light grey background for canvas area */
+/* General Button Styles in Toolbar */
+#toolbar button {
+    padding: 5px 10px;
+    margin: 0 3px; /* Horizontal margin */
+    cursor: pointer;
+    vertical-align: middle;
+    border: 1px solid #ccc;
+    background-color: #fff;
+    height: 28px; /* Match color picker/select height */
+    box-sizing: border-box;
+    flex-shrink: 0; /* Prevent buttons from shrinking */
+}
+#toolbar button:hover {
+    background-color: #eee;
 }
 
-#flowchartCanvas {
-    border: 1px solid #aaa;
-    background-color: #fff; /* White background for the drawing area */
-    /* Add max-width/max-height if needed, or let it be defined by width/height attributes */
-}
-
-/* --- NEW: Text Formatting Controls --- */
+/* Text Formatting Controls Specific Styles */
 .text-format-controls {
-    display: flex;
-    flex-wrap: wrap; /* Allow wrapping if needed */
-    justify-content: center;
-    align-items: center;
-    width: 90%; /* Match other toolbar elements */
-    margin-bottom: 10px;
+    /* Inherits display:flex and align-items:center from .tool-group */
+    padding: 0; /* Remove padding, handled by parent */
+    margin: 0; /* Remove margin, handled by parent */
+    border: none; /* Remove border, handled by parent */
 }
 
 .text-format-controls label {
     margin-right: 5px;
+    white-space: nowrap; /* Prevent label wrapping */
+    vertical-align: middle;
 }
 
 .text-format-controls select {
-    flex-grow: 1; /* Allow select to take space */
-    margin-right: 10px;
-    margin-bottom: 5px; /* Space below if wraps */
-    min-width: 80px; /* Prevent getting too small */
+    margin-right: 5px;
+    min-width: 100px;
+    max-width: 150px;
+    height: 28px; /* Match button height */
+    vertical-align: middle;
+    border: 1px solid #ccc;
+    background-color: #fff;
+    padding: 0 5px;
+    flex-shrink: 0;
 }
 
 .style-button, .align-button {
-    padding: 5px 8px;
-    margin: 2px;
-    border: 1px solid #ccc;
-    background-color: #fff;
-    cursor: pointer;
-    transition: background-color 0.2s ease;
-    min-width: 30px; /* Ensure buttons have some width */
+    /* Inherits base button styles */
+    min-width: 30px;
     text-align: center;
-}
-
-.style-button:hover, .align-button:hover {
-    background-color: #eee;
 }
 
 .style-button.selected, .align-button.selected {
@@ -143,4 +140,21 @@ body {
     border-color: #007bff;
     box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1);
 }
-/* --- END: Text Formatting Controls --- */
+
+/* Canvas Container Styles */
+#canvas-container {
+    flex-grow: 1; /* Take remaining vertical space */
+    display: flex;
+    justify-content: center;
+    align-items: flex-start; /* Align canvas to top */
+    overflow: auto; /* Allow scrolling if canvas is larger than container */
+    background-color: #e9e9e9;
+    padding: 15px; /* Add padding around the canvas */
+}
+
+#flowchartCanvas {
+    border: 1px solid #aaa;
+    background-color: #fff; /* White background for the drawing area */
+    display: block; /* Prevents potential extra space below canvas */
+    /* Width/Height are set in HTML */
+}
