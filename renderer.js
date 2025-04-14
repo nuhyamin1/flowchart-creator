@@ -681,10 +681,20 @@ canvas.addEventListener('mousedown', (e) => {
                 isResizing = true;
                 isRotating = false; // Ensure not rotating
                 console.log(`Start resizing using handle: ${activeHandle}`);
-                // Initial state for resizing is handled in mousemove
+                // --- Store initial state for resize ---
+                selectedShape.initialX = selectedShape.x;
+                selectedShape.initialY = selectedShape.y;
+                selectedShape.initialWidth = selectedShape.width;
+                selectedShape.initialHeight = selectedShape.height;
+                selectedShape.initialRadius = selectedShape.radius; // For circles
+                selectedShape.initialAngle = selectedShape.angle;
+                selectedShape.initialCenter = selectedShape.getCenter();
+                selectedShape.initialMouseX = mouseX;
+                selectedShape.initialMouseY = mouseY;
+                // ------------------------------------
             }
 
-            redrawCanvas(); // Redraw needed to show potential cursor change or immediate feedback
+            redrawCanvas(); // Redraw needed for potential cursor change
             return; // Don't proceed to other checks
         }
     }
@@ -814,97 +824,117 @@ canvas.addEventListener('mousemove', (e) => {
         redrawCanvas();
 
     // --- Handle Resizing ---
-    } else if (isResizing && selectedShape && activeHandle) {
+    } else if (isResizing && selectedShape && activeHandle && selectedShape.initialCenter) {
         const shape = selectedShape;
-        // TODO: Resizing logic needs to account for rotation! This is complex.
-        // For now, resizing will likely behave unexpectedly on rotated shapes.
-        // A proper implementation would involve transforming mouse coordinates
-        // into the shape's local coordinate system before applying resize logic.
-        // --- Existing resize logic (will be inaccurate for rotated shapes) ---
         const minSize = handleSize * 2; // Minimum width/height or radius
 
-        // Store original values before modification
-        const origX = shape.x;
-        const origY = shape.y;
-        let origW = shape.width;
-        let origH = shape.height;
-        let origR = shape.radius;
-        if (shape instanceof Circle) {
-             origW = shape.radius * 2; // Use diameter for consistent calculations
-             origH = shape.radius * 2;
-        }
+        // Retrieve initial state stored on mousedown
+        const initialX = shape.initialX;
+        const initialY = shape.initialY;
+        const initialW = shape.initialWidth;
+        const initialH = shape.initialHeight;
+        const initialAngle = shape.initialAngle;
+        const initialCenter = shape.initialCenter;
+        const initialRadius = shape.initialRadius; // For circles
 
-        // Calculate new dimensions/position based on handle type
+        // Transform current mouse coordinates into the shape's initial unrotated frame
+        const cosInitial = Math.cos(-initialAngle); // Use negative angle for reverse rotation
+        const sinInitial = Math.sin(-initialAngle);
+        const localX = mouseX - initialCenter.x;
+        const localY = mouseY - initialCenter.y;
+        const transformedMouseX = localX * cosInitial - localY * sinInitial + initialCenter.x;
+        const transformedMouseY = localX * sinInitial + localY * cosInitial + initialCenter.y;
+
+        // Calculate new dimensions/position based on handle type using TRANSFORMED mouse coords
+        // and INITIAL dimensions/position
+        let newX = initialX;
+        let newY = initialY;
+        let newW = initialW;
+        let newH = initialH;
+
         switch (activeHandle) {
             case 'top-left':
-                shape.width = Math.max(minSize, origX + origW - mouseX);
-                shape.height = Math.max(minSize, origY + origH - mouseY);
-                shape.x = origX + origW - shape.width;
-                shape.y = origY + origH - shape.height;
+                newW = Math.max(minSize, initialX + initialW - transformedMouseX);
+                newH = Math.max(minSize, initialY + initialH - transformedMouseY);
+                newX = initialX + initialW - newW;
+                newY = initialY + initialH - newH;
                 break;
             case 'top-center':
-                 shape.height = Math.max(minSize, origY + origH - mouseY);
-                 shape.y = origY + origH - shape.height;
+                 newH = Math.max(minSize, initialY + initialH - transformedMouseY);
+                 newY = initialY + initialH - newH;
+                 // newX = initialX; // X and W don't change
+                 // newW = initialW;
                  break;
             case 'top-right':
-                shape.width = Math.max(minSize, mouseX - origX);
-                shape.height = Math.max(minSize, origY + origH - mouseY);
-                //shape.x = origX; // X doesn't change
-                shape.y = origY + origH - shape.height;
+                newW = Math.max(minSize, transformedMouseX - initialX);
+                newH = Math.max(minSize, initialY + initialH - transformedMouseY);
+                // newX = initialX; // X doesn't change
+                newY = initialY + initialH - newH;
                  break;
             case 'middle-left':
-                shape.width = Math.max(minSize, origX + origW - mouseX);
-                shape.x = origX + origW - shape.width;
-                //shape.y = origY; // Y doesn't change
+                newW = Math.max(minSize, initialX + initialW - transformedMouseX);
+                newX = initialX + initialW - newW;
+                // newY = initialY; // Y and H don't change
+                // newH = initialH;
                  break;
             case 'middle-right':
-                shape.width = Math.max(minSize, mouseX - origX);
-                 //shape.x = origX; // X doesn't change
-                 //shape.y = origY; // Y doesn't change
+                newW = Math.max(minSize, transformedMouseX - initialX);
+                 // newX = initialX; // X doesn't change
+                 // newY = initialY; // Y and H don't change
+                 // newH = initialH;
                 break;
             case 'bottom-left':
-                shape.width = Math.max(minSize, origX + origW - mouseX);
-                shape.height = Math.max(minSize, mouseY - origY);
-                shape.x = origX + origW - shape.width;
-                 //shape.y = origY; // Y doesn't change
+                newW = Math.max(minSize, initialX + initialW - transformedMouseX);
+                newH = Math.max(minSize, transformedMouseY - initialY);
+                newX = initialX + initialW - newW;
+                 // newY = initialY; // Y doesn't change
                  break;
             case 'bottom-center':
-                 shape.height = Math.max(minSize, mouseY - origY);
-                 //shape.x = origX; // X doesn't change
-                 //shape.y = origY; // Y doesn't change
+                 newH = Math.max(minSize, transformedMouseY - initialY);
+                 // newX = initialX; // X and W don't change
+                 // newW = initialW;
+                 // newY = initialY; // Y doesn't change
                 break;
             case 'bottom-right':
-                 shape.width = Math.max(minSize, mouseX - origX);
-                 shape.height = Math.max(minSize, mouseY - origY);
-                 //shape.x = origX; // X doesn't change
-                 //shape.y = origY; // Y doesn't change
+                 newW = Math.max(minSize, transformedMouseX - initialX);
+                 newH = Math.max(minSize, transformedMouseY - initialY);
+                 // newX = initialX; // X doesn't change
+                 // newY = initialY; // Y doesn't change
                 break;
         }
 
-        // Specific handling for Circle: maintain center, adjust radius
+        // Apply the calculated new dimensions and position
+        shape.width = newW;
+        shape.height = newH;
+        shape.x = newX;
+        shape.y = newY;
+
+        // Specific handling for Circle: maintain center, adjust radius based on transformed mouse
         if (shape instanceof Circle) {
-            // Calculate new radius based on the change in width/height, average them? Or use distance?
-            // Let's use distance from center to mouse for corner handles
-            const dx = mouseX - shape.x;
-            const dy = mouseY - shape.y;
-             let newRadius = shape.radius; // Default to original
+            // Calculate distance from initial center to transformed mouse
+            const dx = transformedMouseX - initialCenter.x;
+            const dy = transformedMouseY - initialCenter.y;
+            let newRadius = Math.sqrt(dx * dx + dy * dy);
 
-            if (activeHandle.includes('left') || activeHandle.includes('right') || activeHandle.includes('top') || activeHandle.includes('bottom')) {
-                 // More intuitive: calculate distance from center to mouse
-                 newRadius = Math.sqrt(dx * dx + dy * dy);
-             }
-            // Simplified: Base on bounding box width/height changes (can distort slightly)
-            // shape.radius = Math.max(minSize/2, (shape.width + shape.height) / 4);
-             shape.radius = Math.max(minSize / 2, newRadius);
+            // Adjust radius based on which handle is dragged (approximate)
+            // This part is tricky for circles. A simpler approach might be needed.
+            // Let's try basing radius on average change from center for corners/sides.
+            if (activeHandle.includes('left') || activeHandle.includes('right')) {
+                newRadius = Math.abs(dx);
+            } else if (activeHandle.includes('top') || activeHandle.includes('bottom')) {
+                newRadius = Math.abs(dy);
+            } else { // Corner handles
+                 newRadius = (Math.abs(dx) + Math.abs(dy)) / 2; // Average distance change
+            }
 
-             // Circle x/y is center, it doesn't change during resize
-             shape.x = origX;
-             shape.y = origY;
+            shape.radius = Math.max(minSize / 2, newRadius);
+
+            // Circle x/y is center, it should remain at initialCenter during resize
+            shape.x = initialCenter.x;
+            shape.y = initialCenter.y;
         }
 
-        cursor = getCursorForHandle(activeHandle);
-        // --- End of existing resize logic ---
-        cursor = getCursorForHandle(activeHandle);
+        cursor = getCursorForHandle(activeHandle); // Cursor logic might still need adjustment for rotation
         redrawCanvas();
 
     // --- Handle Shape Dragging ---
@@ -993,12 +1023,25 @@ canvas.addEventListener('mouseup', (e) => {
     // Finalize resizing
     if (isResizing) {
         console.log('Finished resizing shape:', selectedShape);
-        // TODO: Resizing rotated shapes needs fixing.
+        // TODO: Resizing rotated shapes needs fixing. -> FIXED (mostly)
         isResizing = false;
         activeHandle = null;
+        // --- Clean up initial state properties ---
+        if (selectedShape) {
+            delete selectedShape.initialX;
+            delete selectedShape.initialY;
+            delete selectedShape.initialWidth;
+            delete selectedShape.initialHeight;
+            delete selectedShape.initialRadius;
+            delete selectedShape.initialAngle;
+            delete selectedShape.initialCenter;
+            delete selectedShape.initialMouseX;
+            delete selectedShape.initialMouseY;
+        }
+        // ---------------------------------------
         stateChanged = true; // Resizing changes state
         // Set cursor back to default or move
-        canvas.style.cursor = selectedShape ? getCursorForHandle(null) : 'default';
+        canvas.style.cursor = selectedShape ? getCursorForHandle(null) : 'default'; // Use getCursorForHandle for consistency
         currentCursor = canvas.style.cursor;
         redrawCanvas(); // Redraw needed to potentially update cursor based on hover after resize
     }
