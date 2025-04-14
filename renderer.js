@@ -457,9 +457,13 @@ function redrawCanvas() {
 
 // Toolbar shape selection
 toolbar.addEventListener('click', (e) => {
-    if (e.target.classList.contains('shape')) {
-        const toolType = e.target.getAttribute('data-shape');
-        setActiveTool(toolType);
+    // Use closest to find the .shape element, even if the click is on the img inside it
+    const shapeButton = e.target.closest('.shape');
+    if (shapeButton) { // Check if a shape button was found
+        const toolType = shapeButton.getAttribute('data-shape');
+        if (toolType) { // Ensure it has the data-shape attribute
+            setActiveTool(toolType);
+        }
     }
 });
 

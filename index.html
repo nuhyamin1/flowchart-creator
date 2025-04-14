@@ -2,22 +2,34 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'">
-    <meta http-equiv="X-Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;">
+    <meta http-equiv="X-Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;">
     <title>Flowchart App</title>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
     <div id="toolbar">
         <h2>Shapes</h2>
-        <div class="shape" data-shape="rectangle">Rectangle</div>
-        <div class="shape" data-shape="circle">Circle</div>
-        <div class="shape" data-shape="diamond">Diamond</div>
-        <div class="shape" data-shape="line">Line</div>
-        <div class="shape" data-shape="default">Default Cursor</div>
+        <div class="shape" data-shape="rectangle" title="Rectangle">
+            <img src="icons/rectangle.svg" alt="Rectangle Tool">
+        </div>
+        <div class="shape" data-shape="circle" title="Circle">
+            <img src="icons/circle.svg" alt="Circle Tool">
+        </div>
+        <div class="shape" data-shape="diamond" title="Diamond">
+            <img src="icons/diamond.svg" alt="Diamond Tool">
+        </div>
+        <div class="shape" data-shape="line" title="Line">
+            <img src="icons/line.svg" alt="Line Tool">
+        </div>
+        <div class="shape" data-shape="default" title="Default Cursor">
+            <img src="icons/cursor.svg" alt="Default Cursor Tool">
+        </div>
+
         <h2>Colors</h2>
         <input type="color" id="colorPicker" value="#000000">
-        <button id="removeColorButton">Remove Fill</button> <!-- Added Button -->
+        <button id="removeColorButton">Remove Fill</button>
+
         <h2>Actions</h2>
         <button id="savePng">Save as PNG</button>
         <button id="saveJpg">Save as JPG</button>
