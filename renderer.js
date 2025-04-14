@@ -35,6 +35,8 @@ let activeHandle = null; // Stores the type ('top-left', 'rotation', etc.) of th
 const handleSize = 8; // Size of the square resize handles
 let currentCursor = 'default'; // To manage cursor style changes
 let activeTextInput = null; // Reference to the currently active text input element
+let initialMouseDownPos = null; // Store mouse position on mousedown
+const dragThreshold = 3; // Pixels mouse must move to initiate drag
 
 
 // --- Helper Function to Set Active Tool ---
@@ -462,9 +464,27 @@ class Text extends Shape {
                mouseY >= this.y && mouseY <= this.y + this.height;
     }
 
-    // Text objects won't have resize/rotation handles in this version
+    // Return handles based on the bounding box, similar to Rectangle but without rotation handle/logic
     getHandles() {
-        return [];
+        const handleOffset = handleSize / 2;
+        // Text doesn't rotate, so angle is 0
+        const x = this.x;
+        const y = this.y;
+        const w = this.width;
+        const h = this.height;
+
+        // Calculate handle positions directly (no rotation needed)
+        return [
+            { x: x - handleOffset,       y: y - handleOffset,       type: 'top-left' },
+            { x: x + w / 2 - handleOffset, y: y - handleOffset,       type: 'top-center' },
+            { x: x + w - handleOffset,     y: y - handleOffset,       type: 'top-right' },
+            { x: x - handleOffset,       y: y + h / 2 - handleOffset, type: 'middle-left' },
+            { x: x + w - handleOffset,     y: y + h / 2 - handleOffset, type: 'middle-right' },
+            { x: x - handleOffset,       y: y + h - handleOffset,     type: 'bottom-left' },
+            { x: x + w / 2 - handleOffset, y: y + h - handleOffset,     type: 'bottom-center' },
+            { x: x + w - handleOffset,     y: y + h - handleOffset,     type: 'bottom-right' },
+            // No rotation handle for text
+        ];
     }
 
     clone() {
@@ -628,19 +648,31 @@ function redrawCanvas() {
              ctx.lineTo(selectedShape.x + selectedShape.width, selectedShape.y + selectedShape.height / 2); // Right point
              ctx.lineTo(selectedShape.x + selectedShape.width / 2, selectedShape.y + selectedShape.height); // Bottom point
              ctx.lineTo(selectedShape.x, selectedShape.y + selectedShape.height / 2); // Left point
-             ctx.closePath();
-             ctx.stroke();
-         }
-         // Lines don't have a separate highlight drawn here, their main draw is sufficient.
-         // We could add endpoint markers if desired.
+              ctx.closePath();
+              ctx.stroke();
+          } else if (selectedShape instanceof Text) { // NEW: Highlight for Text
+              // Text doesn't rotate, so no need for save/restore/rotate here
+              // Draw highlight based on calculated width/height
+              ctx.strokeRect(selectedShape.x, selectedShape.y, selectedShape.width, selectedShape.height);
+          }
+          // Lines don't have a separate highlight drawn here, their main draw is sufficient.
+          // We could add endpoint markers if desired.
 
-        ctx.restore(); // Restore context after drawing rotated highlight
+         // Restore context only if we saved it (for shapes that rotate)
+         if (!(selectedShape instanceof Text) && !(selectedShape instanceof Line)) {
+            ctx.restore();
+         }
         ctx.setLineDash([]); // Reset line dash
         // --- End Rotated Selection Highlight ---
 
 
         // --- Draw Handles (already correctly positioned) ---
         const handles = selectedShape.getHandles();
+        // --- DEBUG LOG ---
+        if (selectedShape instanceof Text) {
+            console.log("Drawing handles for Text:", selectedShape.text, "Handles:", handles);
+        }
+        // --- END DEBUG LOG ---
         if (handles.length > 0) {
              ctx.fillStyle = 'white'; // Handle fill color
              ctx.strokeStyle = 'black'; // Handle border color
@@ -720,11 +752,13 @@ canvas.addEventListener('mousedown', (e) => {
     isRotating = false; // Reset rotation flag
     activeHandle = null;
     shapeCenter = null;
+    initialMouseDownPos = { x: mouseX, y: mouseY }; // Store initial position for drag threshold check
 
     // Priority 1: Check if clicking on a handle (resize or rotation) of the selected shape
     if (selectedShape) {
         activeHandle = getHandleAt(mouseX, mouseY);
         if (activeHandle) {
+            initialMouseDownPos = null; // Don't check for drag threshold if starting on a handle
             // Bring selected shape to front
             shapes.splice(shapes.indexOf(selectedShape), 1);
             shapes.push(selectedShape);
@@ -765,6 +799,7 @@ canvas.addEventListener('mousedown', (e) => {
 
     // Priority 2: Check if starting to draw a new line
     if (currentShapeType === 'line') {
+        initialMouseDownPos = null; // Not dragging a shape
         isDrawingLine = true;
         lineStartX = mouseX;
         lineStartY = mouseY;
@@ -789,25 +824,12 @@ canvas.addEventListener('mousedown', (e) => {
 
     if (clickedShape) {
         selectedShape = clickedShape;
-        isDragging = true; // Start dragging the shape
+        // isDragging = true; // Don't start dragging immediately
+        // initialMouseDownPos is already set above
         activeHandle = null; // Ensure not resizing or rotating via handle
         isResizing = false;
         isRotating = false;
-        // Calculate drag offset
-        dragOffsetX = mouseX - selectedShape.x; // Use base x for offset (rect, diamond)
-        dragOffsetY = mouseY - selectedShape.y; // Use base y for offset (rect, diamond)
-        // For Circle, offset is relative to center (which is x,y)
-        if (selectedShape instanceof Circle) {
-            dragOffsetX = mouseX - selectedShape.x;
-            dragOffsetY = mouseY - selectedShape.y;
-        }
-         // Store relative position for lines if dragging line
-         if (selectedShape instanceof Line) {
-             dragOffsetX = mouseX - selectedShape.x1;
-             dragOffsetY = mouseY - selectedShape.y1;
-             selectedShape.dx = selectedShape.x2 - selectedShape.x1;
-             selectedShape.dy = selectedShape.y2 - selectedShape.y1;
-         }
+        // Calculate drag offset // MOVED to mousemove
 
         // Bring selected shape to front
         shapes.splice(shapes.indexOf(selectedShape), 1);
@@ -817,11 +839,12 @@ canvas.addEventListener('mousedown', (e) => {
         colorPicker.value = selectedShape.color || '#000000';
         // Don't update currentColor here, only when picker is used or shape created
 
-        console.log('Selected existing shape for dragging:', selectedShape);
-        redrawCanvas();
+         console.log('Selected existing shape:', selectedShape); // Log message updated
+         redrawCanvas(); // Restore redraw here to show selection immediately
 
-    } else {
+     } else {
         // Priority 4: Clicked on background - Add new shape or deselect
+        initialMouseDownPos = null; // Not dragging a shape
         selectedShape = null; // Deselect first
         let newShape;
         const defaultWidth = 100;
@@ -880,13 +903,6 @@ function startTextInput(x, y) {
     input.style.position = 'absolute';
     // Position relative to the canvas's top-left corner
     const canvasRect = canvas.getBoundingClientRect();
-    input.style.left = `${canvasRect.left + window.scrollX + x}px`;
-    input.style.top = `${canvasRect.top + window.scrollY + y}px`;
-    // Minimal styling for testing:
-    // input.style.border = '1px solid #ccc';
-    // input.style.padding = '2px';
-    // input.style.font = `${16}px Arial`;
-    // input.style.backgroundColor = 'white';
     input.style.left = `${canvasRect.left + window.scrollX + x}px`;
     input.style.top = `${canvasRect.top + window.scrollY + y}px`;
     // Restore basic styling:
@@ -1022,6 +1038,34 @@ canvas.addEventListener('mousemove', (e) => {
     const mouseX = e.clientX - rect.left;
     const mouseY = e.clientY - rect.top;
     let cursor = currentCursor; // Start with current cursor
+
+    // --- Initiate Dragging ---
+    // If a shape is selected, we're not currently dragging/resizing/rotating,
+    // and the mouse has moved beyond the threshold since mousedown: start dragging.
+    if (selectedShape && !isDragging && !isResizing && !isRotating && initialMouseDownPos) {
+        const dx = mouseX - initialMouseDownPos.x;
+        const dy = mouseY - initialMouseDownPos.y;
+        if (Math.sqrt(dx * dx + dy * dy) > dragThreshold) {
+            isDragging = true; // Start dragging now
+            console.log('Drag threshold exceeded, starting drag.');
+            // Calculate drag offset based on CURRENT mouse and shape position
+            dragOffsetX = mouseX - selectedShape.x;
+            dragOffsetY = mouseY - selectedShape.y;
+            if (selectedShape instanceof Circle) { // Circle offset is relative to center
+                dragOffsetX = mouseX - selectedShape.x;
+                dragOffsetY = mouseY - selectedShape.y;
+            }
+            if (selectedShape instanceof Line) { // Line offset is relative to start point
+                dragOffsetX = mouseX - selectedShape.x1;
+                dragOffsetY = mouseY - selectedShape.y1;
+                // Ensure dx/dy are stored for line dragging
+                selectedShape.dx = selectedShape.x2 - selectedShape.x1;
+                selectedShape.dy = selectedShape.y2 - selectedShape.y1;
+            }
+            // Set appropriate cursor now that dragging has started
+            cursor = getCursorForHandle(null); // 'grabbing'
+        }
+    }
 
     // --- Handle Rotation ---
     if (isRotating && selectedShape && shapeCenter) {
@@ -1173,7 +1217,7 @@ canvas.addEventListener('mousemove', (e) => {
             selectedShape.x = newX;
             selectedShape.y = newY;
         } else {
-            // Rectangle, Diamond - x,y is top-left
+            // Rectangle, Diamond, Text - x,y is top-left
             selectedShape.x = newX;
             selectedShape.y = newY;
         }
@@ -1263,7 +1307,7 @@ canvas.addEventListener('mouseup', (e) => {
         // Set cursor back to default or move
         canvas.style.cursor = selectedShape ? getCursorForHandle(null) : 'default'; // Use getCursorForHandle for consistency
         currentCursor = canvas.style.cursor;
-        redrawCanvas(); // Redraw needed to potentially update cursor based on hover after resize
+        // redrawCanvas(); // Redraw needed to potentially update cursor based on hover after resize - Handled below
     }
 
     // Finalize dragging
@@ -1291,7 +1335,7 @@ canvas.addEventListener('mouseup', (e) => {
              console.log('Line drawing cancelled (start=end).');
          }
         isDrawingLine = false;
-        redrawCanvas();
+        // redrawCanvas(); // Handled below
         if (stateChanged) { // Only reset tool if a line was actually added
             setActiveTool('default'); // Reset tool after finishing line draw
         }
@@ -1304,9 +1348,15 @@ canvas.addEventListener('mouseup', (e) => {
 
     // Cursor should be handled by mousemove or setActiveTool now.
     // No longer need to force reset here.
-    // canvas.style.cursor = 'default';
-    // currentCursor = 'default';
-});
+     // canvas.style.cursor = 'default';
+     // currentCursor = 'default';
+
+     // Ensure redraw happens after flags are reset if a shape is still selected
+     if (selectedShape) {
+         redrawCanvas();
+     }
+     initialMouseDownPos = null; // Clear initial mouse down position
+ });
 
 canvas.addEventListener('mouseleave', () => {
     // Cancel any ongoing drawing/dragging/resizing
@@ -1338,6 +1388,7 @@ canvas.addEventListener('mouseleave', () => {
         canvas.style.cursor = 'default';
         currentCursor = 'default';
     }
+    initialMouseDownPos = null; // Clear initial mouse down position if mouse leaves
 });
 
 // Delete selected shape / Handle global keys
