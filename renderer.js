@@ -505,13 +505,15 @@ class Text extends Shape {
 
         lines.forEach(line => {
             // Adjust drawX per line for alignment
-            let lineDrawX = this.x; // Default to left
+            // Determine the correct X coordinate based on textAlign
+            // ctx.textAlign handles the actual alignment relative to this point
+            let lineDrawX;
             if (this.textAlign === 'center') {
-                const metrics = ctx.measureText(line);
-                lineDrawX = this.x + (this.width - metrics.width) / 2; // Center this specific line within the bounding box
+                lineDrawX = this.x + this.width / 2; // Anchor point is the center
             } else if (this.textAlign === 'right') {
-                const metrics = ctx.measureText(line);
-                lineDrawX = this.x + this.width - metrics.width; // Align this specific line to the right edge of the bounding box
+                lineDrawX = this.x + this.width;   // Anchor point is the right edge
+            } else { // Default to left
+                lineDrawX = this.x;               // Anchor point is the left edge
             }
             ctx.fillText(line, lineDrawX, currentY);
             currentY += lineHeight;
@@ -918,7 +920,8 @@ underlineButton.addEventListener('click', () => {
 [alignLeftButton, alignCenterButton, alignRightButton].forEach(button => {
     button.addEventListener('click', (e) => {
         if (selectedShape instanceof Text) {
-            const newAlign = e.target.getAttribute('data-align');
+            const buttonElement = e.target.closest('.align-button'); // Get the button element
+            const newAlign = buttonElement ? buttonElement.getAttribute('data-align') : null; // Get attribute from button
             selectedShape.textAlign = newAlign;
 
             // Update button styles
