@@ -54,6 +54,7 @@ let activeTextInput = null; // Reference to the currently active text input elem
 let editingTextShape = null; // Store the shape being edited
 let initialMouseDownPos = null; // Store mouse position on mousedown (in canvas coordinates)
 const dragThreshold = 3; // Pixels mouse must move to initiate drag
+let clipboardShape = null; // Variable to hold the copied shape data
 
 
 // --- NEW: Helper Function to get Mouse Position in Canvas Coordinates ---
@@ -697,6 +698,43 @@ function redo() {
     // updateUndoRedoButtons(); // Removed call
     console.log(`Redo performed. History index: ${historyIndex}`);
 }
+
+// --- NEW: Copy/Paste Handlers ---
+function handleCopyCanvas() {
+    if (selectedShape) {
+        clipboardShape = selectedShape.clone(); // Use the clone method
+        console.log('Shape copied to clipboard:', clipboardShape);
+    } else {
+        clipboardShape = null; // Clear clipboard if nothing is selected
+        console.log('Nothing selected to copy.');
+    }
+}
+
+function handlePasteCanvas() {
+    if (clipboardShape) {
+        const newShape = clipboardShape.clone(); // Clone again for pasting
+        // Offset the pasted shape slightly
+        const offsetAmount = 10; // Pixels to offset
+        newShape.x += offsetAmount;
+        newShape.y += offsetAmount;
+        // If it's a line, offset both points
+        if (newShape.type === 'line') {
+            newShape.x1 += offsetAmount;
+            newShape.y1 += offsetAmount;
+            newShape.x2 += offsetAmount;
+            newShape.y2 += offsetAmount;
+        }
+        newShape.id = Date.now() + Math.random(); // Give it a new unique ID
+        shapes.push(newShape);
+        selectedShape = newShape; // Select the newly pasted shape
+        saveState(); // Save state for undo
+        redrawCanvas();
+        console.log('Shape pasted from clipboard:', newShape);
+    } else {
+        console.log('Clipboard is empty.');
+    }
+}
+// --------------------------------
 
 // Removed updateUndoRedoButtons function
 
@@ -1830,3 +1868,10 @@ async function loadSystemFonts() {
 
 setActiveTool('default'); // Start with the default selection tool active
 loadSystemFonts(); // Load fonts when the renderer starts
+
+// --- Setup IPC Listeners from Main ---
+window.electronAPI.onUndo(undo);
+window.electronAPI.onRedo(redo);
+// The listener for onRequestSave is already defined above (around line 1758)
+window.electronAPI.onCopyCanvas(handleCopyCanvas); // Listen for copy command
+window.electronAPI.onPasteCanvas(handlePasteCanvas); // Listen for paste command

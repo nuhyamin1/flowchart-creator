@@ -99,9 +99,21 @@ app.whenReady().then(() => {
           }
         },
         { type: 'separator' },
-        { role: 'cut' },
-        { role: 'copy' },
-        { role: 'paste' },
+        { role: 'cut' }, // Keep default cut for text fields, etc.
+        {
+          label: 'Copy Shape/Text', // Custom label
+          accelerator: 'CmdOrCtrl+C',
+          click: () => {
+            mainWindow?.webContents.send('copy-canvas'); // Send custom IPC message
+          }
+        },
+        {
+          label: 'Paste Shape/Text', // Custom label
+          accelerator: 'CmdOrCtrl+V',
+          click: () => {
+            mainWindow?.webContents.send('paste-canvas'); // Send custom IPC message
+          }
+        },
         ...(process.platform === 'darwin' ? [
           { role: 'pasteAndMatchStyle' },
           { role: 'delete' },
