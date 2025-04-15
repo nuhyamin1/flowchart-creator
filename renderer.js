@@ -39,13 +39,35 @@ let isRotating = false;
 let rotationStartAngle = 0; // Initial angle between center and mouse on mousedown
 let shapeCenter = null; // Center of the shape being rotated
 
+// --- NEW: Zoom and Pan State ---
+let zoomLevel = 1.0;
+let offsetX = 0;
+let offsetY = 0;
+const minZoom = 0.1;
+const maxZoom = 10.0;
+// -----------------------------
+
 let activeHandle = null; // Stores the type ('top-left', 'rotation', etc.) of the handle being dragged
 const handleSize = 8; // Size of the square resize handles
 let currentCursor = 'default'; // To manage cursor style changes
 let activeTextInput = null; // Reference to the currently active text input element
 let editingTextShape = null; // Store the shape being edited
-let initialMouseDownPos = null; // Store mouse position on mousedown
+let initialMouseDownPos = null; // Store mouse position on mousedown (in canvas coordinates)
 const dragThreshold = 3; // Pixels mouse must move to initiate drag
+
+
+// --- NEW: Helper Function to get Mouse Position in Canvas Coordinates ---
+function getMousePos(event) {
+    const rect = canvas.getBoundingClientRect();
+    // Screen coordinates relative to canvas top-left
+    const screenX = event.clientX - rect.left;
+    const screenY = event.clientY - rect.top;
+    // Transform screen coordinates to canvas coordinates
+    const canvasX = (screenX - offsetX) / zoomLevel;
+    const canvasY = (screenY - offsetY) / zoomLevel;
+    return { x: canvasX, y: canvasY };
+}
+// --------------------------------------------------------------------
 
 
 // --- Helper Function to Set Active Tool ---
@@ -679,14 +701,25 @@ function redo() {
 
 // --- Canvas Redraw ---
 function redrawCanvas() {
+    // Save the default state (identity transform)
+    ctx.save();
+
+    // Clear the entire visible canvas area (untransformed)
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+    // Apply the current pan and zoom transformation
+    ctx.translate(offsetX, offsetY);
+    ctx.scale(zoomLevel, zoomLevel);
+
+    // --- Draw all shapes within the transformed context ---
     shapes.forEach(shape => {
+        // Pass the transformed context to the draw method
+        // Shape coordinates are already in canvas space
         shape.draw(ctx);
     });
 
+    // --- Draw temporary line (also in transformed context) ---
     if (isDrawingLine) {
-        // ... (keep existing temporary line drawing logic) ...
         ctx.beginPath();
         ctx.moveTo(lineStartX, lineStartY);
         ctx.lineTo(tempLineEndX, tempLineEndY);
@@ -695,24 +728,32 @@ function redrawCanvas() {
         ctx.setLineDash([5, 5]);
         ctx.stroke();
         ctx.setLineDash([]);
-        ctx.lineWidth = 1;
+        ctx.lineWidth = 1; // Reset line width after drawing temp line
     }
 
-    // Draw selection highlight and handles
+    // --- Draw selection highlight and handles (within transformed context) ---
     if (selectedShape) {
+        // Apply shape's rotation ON TOP of the global zoom/pan
         const center = selectedShape.getCenter();
         const angle = selectedShape.angle;
 
         // --- Draw Rotated Selection Highlight ---
-        ctx.save();
-        ctx.translate(center.x, center.y);
-        ctx.rotate(angle);
-        ctx.translate(-center.x, -center.y);
+        ctx.save(); // Save the zoomed/panned state
+        ctx.translate(center.x, center.y); // Translate origin to shape center
+        ctx.rotate(angle); // Rotate around shape center
+        ctx.translate(-center.x, -center.y); // Translate origin back
+
+        // Styles are affected by zoom, adjust line width if needed
+        const scaledLineWidth = 2 / zoomLevel; // Make highlight consistent thickness visually
+        const scaledHandleSize = handleSize / zoomLevel; // Make handles consistent size visually
+        const scaledHandleOffset = scaledHandleSize / 2;
+        const scaledRotationHandleOffset = 20 / zoomLevel; // Adjust rotation handle distance
 
         ctx.strokeStyle = 'blue';
-        ctx.lineWidth = 2;
-        ctx.setLineDash([5, 3]); // Optional: Dashed line for selection
+        ctx.lineWidth = scaledLineWidth;
+        ctx.setLineDash([5 / zoomLevel, 3 / zoomLevel]); // Scale dash pattern
 
+        // Draw highlight based on shape type (using shape's own coords)
         if (selectedShape instanceof Rectangle) {
              ctx.strokeRect(selectedShape.x, selectedShape.y, selectedShape.width, selectedShape.height);
          } else if (selectedShape instanceof Circle) {
@@ -721,63 +762,67 @@ function redrawCanvas() {
              ctx.arc(selectedShape.x, selectedShape.y, selectedShape.radius, 0, Math.PI * 2);
              ctx.stroke();
          } else if (selectedShape instanceof Diamond) {
-             // Draw diamond outline relative to its top-left (x,y)
              ctx.beginPath();
-             ctx.moveTo(selectedShape.x + selectedShape.width / 2, selectedShape.y); // Top point
-             ctx.lineTo(selectedShape.x + selectedShape.width, selectedShape.y + selectedShape.height / 2); // Right point
-             ctx.lineTo(selectedShape.x + selectedShape.width / 2, selectedShape.y + selectedShape.height); // Bottom point
-             ctx.lineTo(selectedShape.x, selectedShape.y + selectedShape.height / 2); // Left point
-              ctx.closePath();
-              ctx.stroke();
-          } else if (selectedShape instanceof Text) { // NEW: Highlight for Text
-              // Text doesn't rotate, so no need for save/restore/rotate here
-              // Draw highlight based on calculated width/height
-              ctx.strokeRect(selectedShape.x, selectedShape.y, selectedShape.width, selectedShape.height);
-          }
-          // Lines don't have a separate highlight drawn here, their main draw is sufficient.
-          // We could add endpoint markers if desired.
-
-         // Restore context only if we saved it (for shapes that rotate)
-         if (!(selectedShape instanceof Text) && !(selectedShape instanceof Line)) {
-            ctx.restore();
+             ctx.moveTo(selectedShape.x + selectedShape.width / 2, selectedShape.y);
+             ctx.lineTo(selectedShape.x + selectedShape.width, selectedShape.y + selectedShape.height / 2);
+             ctx.lineTo(selectedShape.x + selectedShape.width / 2, selectedShape.y + selectedShape.height);
+             ctx.lineTo(selectedShape.x, selectedShape.y + selectedShape.height / 2);
+             ctx.closePath();
+             ctx.stroke();
+         } else if (selectedShape instanceof Text) {
+             // Text highlight doesn't need rotation logic within this save/restore block
+             // We draw it after restoring the context from rotation
          }
+         // Lines don't get highlight box
+
+         // Restore context from shape rotation
+         ctx.restore(); // Back to just zoomed/panned state
+
+         // Draw Text highlight (no rotation applied)
+         if (selectedShape instanceof Text) {
+             ctx.strokeRect(selectedShape.x, selectedShape.y, selectedShape.width, selectedShape.height);
+         }
+
         ctx.setLineDash([]); // Reset line dash
-        // --- End Rotated Selection Highlight ---
+        // --- End Selection Highlight ---
 
 
-        // --- Draw Handles (already correctly positioned) ---
-        const handles = selectedShape.getHandles();
-        // --- DEBUG LOG ---
-        if (selectedShape instanceof Text) {
-            console.log("Drawing handles for Text:", selectedShape.text, "Handles:", handles);
-        }
-        // --- END DEBUG LOG ---
+        // --- Draw Handles (adjust size and position based on zoom) ---
+        // Get handles based on UNZOOMED size, then draw them scaled
+        const handles = selectedShape.getHandles(); // These coords are in canvas space
         if (handles.length > 0) {
-             ctx.fillStyle = 'white'; // Handle fill color
-             ctx.strokeStyle = 'black'; // Handle border color
-             ctx.lineWidth = 1;
+             ctx.fillStyle = 'white';
+             ctx.strokeStyle = 'black';
+             ctx.lineWidth = 1 / zoomLevel; // Keep border visually thin
+
              handles.forEach(handle => {
+                 // Calculate handle center for drawing scaled square/circle
+                 const handleCenterX = handle.x + handleSize / 2; // Original center
+                 const handleCenterY = handle.y + handleSize / 2; // Original center
+
                  if (handle.type === 'rotation') {
-                     // Draw rotation handle as a circle
+                     // Draw rotation handle as a circle (scaled size)
                      ctx.beginPath();
-                     ctx.arc(handle.x + handleSize / 2, handle.y + handleSize / 2, handleSize / 1.5, 0, Math.PI * 2);
+                     ctx.arc(handleCenterX, handleCenterY, scaledHandleSize / 1.5, 0, Math.PI * 2);
                      ctx.fillStyle = 'lightblue';
                      ctx.fill();
                      ctx.stroke();
                  } else {
-                     // Draw resize handles as squares
+                     // Draw resize handles as squares (scaled size)
                      ctx.fillStyle = 'white';
-                     ctx.fillRect(handle.x, handle.y, handleSize, handleSize);
-                     ctx.strokeRect(handle.x, handle.y, handleSize, handleSize);
+                     // Calculate top-left corner for scaled square
+                     const scaledHandleX = handle.x + (handleSize - scaledHandleSize) / 2;
+                     const scaledHandleY = handle.y + (handleSize - scaledHandleSize) / 2;
+                     ctx.fillRect(scaledHandleX, scaledHandleY, scaledHandleSize, scaledHandleSize);
+                     ctx.strokeRect(scaledHandleX, scaledHandleY, scaledHandleSize, scaledHandleSize);
                  }
              });
         }
         // -------------------------------
+    } // End if(selectedShape)
 
-        // Reset styles
-        ctx.strokeStyle = 'black';
-        ctx.lineWidth = 1;
-    }
+    // Restore the default context state (removes zoom/pan)
+    ctx.restore();
 }
 
 // --- Event Listeners ---
@@ -893,83 +938,85 @@ underlineButton.addEventListener('click', () => {
 
 // --- MODIFIED Canvas Interaction ---
 canvas.addEventListener('mousedown', (e) => {
-    const rect = canvas.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
+    const mousePos = getMousePos(e); // Use transformed coordinates
+    const mouseX = mousePos.x;
+    const mouseY = mousePos.y;
 
     isDragging = false; // Reset flags
     isResizing = false;
     isRotating = false; // Reset rotation flag
     activeHandle = null;
     shapeCenter = null;
-    initialMouseDownPos = { x: mouseX, y: mouseY }; // Store initial position for drag threshold check
+    initialMouseDownPos = { x: mouseX, y: mouseY }; // Store initial position (canvas coords)
 
-    // Priority 1: Check if clicking on a handle (resize or rotation) of the selected shape
+    // Priority 1: Check if clicking on a handle of the selected shape
     if (selectedShape) {
+        // Check handles using canvas coordinates
         activeHandle = getHandleAt(mouseX, mouseY);
         if (activeHandle) {
-            initialMouseDownPos = null; // Don't check for drag threshold if starting on a handle
-            // Bring selected shape to front
-            shapes.splice(shapes.indexOf(selectedShape), 1);
-            shapes.push(selectedShape);
+            initialMouseDownPos = null; // Don't check drag threshold if starting on handle
+            // Bring selected shape to front (if not already)
+            const shapeIndex = shapes.indexOf(selectedShape);
+            if (shapeIndex !== -1 && shapeIndex < shapes.length - 1) {
+                shapes.splice(shapeIndex, 1);
+                shapes.push(selectedShape);
+            }
 
             if (activeHandle === 'rotation') {
                 isRotating = true;
-                isResizing = false; // Ensure not resizing
+                isResizing = false;
                 shapeCenter = selectedShape.getCenter();
-                // Calculate initial angle from center to mouse
+                // Calculate initial angle from center to mouse (using canvas coords)
                 const dx = mouseX - shapeCenter.x;
                 const dy = mouseY - shapeCenter.y;
                 rotationStartAngle = Math.atan2(dy, dx);
                 console.log(`Start rotating. Center: (${shapeCenter.x.toFixed(1)}, ${shapeCenter.y.toFixed(1)}), Start Angle: ${rotationStartAngle.toFixed(2)}`);
-                canvas.style.cursor = getCursorForHandle('rotation'); // Set grabbing cursor immediately
+                canvas.style.cursor = getCursorForHandle('rotation');
                 currentCursor = canvas.style.cursor;
 
-            } else { // It's a resize handle
+            } else { // Resize handle
                 isResizing = true;
-                isRotating = false; // Ensure not rotating
+                isRotating = false;
                 console.log(`Start resizing using handle: ${activeHandle}`);
-                // --- Store initial state for resize ---
+                // Store initial state (using canvas coords)
                 selectedShape.initialX = selectedShape.x;
                 selectedShape.initialY = selectedShape.y;
                 selectedShape.initialWidth = selectedShape.width;
                 selectedShape.initialHeight = selectedShape.height;
-                selectedShape.initialRadius = selectedShape.radius; // For circles
+                selectedShape.initialRadius = selectedShape.radius;
                 selectedShape.initialAngle = selectedShape.angle;
                 selectedShape.initialCenter = selectedShape.getCenter();
-                selectedShape.initialMouseX = mouseX;
+                selectedShape.initialMouseX = mouseX; // Store initial canvas mouse coords
                 selectedShape.initialMouseY = mouseY;
-                // --- NEW: Store initial font size for text ---
                 if (selectedShape instanceof Text) {
                     selectedShape.initialFontSize = selectedShape.fontSize;
                 }
-                // ------------------------------------
             }
 
-            redrawCanvas(); // Redraw needed for potential cursor change
-            return; // Don't proceed to other checks
+            redrawCanvas();
+            return; // Handled handle click
         }
     }
 
-    // Priority 2: Check if starting to draw a new line
+    // Priority 2: Start drawing a new line
     if (currentShapeType === 'line') {
-        initialMouseDownPos = null; // Not dragging a shape
+        initialMouseDownPos = null;
         isDrawingLine = true;
-        lineStartX = mouseX;
+        lineStartX = mouseX; // Use canvas coords
         lineStartY = mouseY;
         tempLineEndX = mouseX;
         tempLineEndY = mouseY;
-        selectedShape = null; // Deselect any shape
-        console.log(`Starting line at (${lineStartX}, ${lineStartY})`);
+        selectedShape = null;
+        console.log(`Starting line at (${lineStartX.toFixed(1)}, ${lineStartY.toFixed(1)})`);
         redrawCanvas();
-        return;
+        return; // Handled line start
     }
 
-    // Priority 3: Check if clicking on an existing shape to select/drag
+    // Priority 3: Click on existing shape to select/drag
     let clickedShape = null;
-    // Iterate backwards to find the top-most shape
     for (let i = shapes.length - 1; i >= 0; i--) {
         const shape = shapes[i];
+        // Use canvas coords for isInside check
         if (shape.isInside(mouseX, mouseY)) {
             clickedShape = shape;
             break;
@@ -978,22 +1025,21 @@ canvas.addEventListener('mousedown', (e) => {
 
     if (clickedShape) {
         selectedShape = clickedShape;
-        // isDragging = true; // Don't start dragging immediately
-        // initialMouseDownPos is already set above
-        activeHandle = null; // Ensure not resizing or rotating via handle
+        // initialMouseDownPos (canvas coords) is already set
+        activeHandle = null;
         isResizing = false;
         isRotating = false;
-        // Calculate drag offset // MOVED to mousemove
+        // Drag offset calculated in mousemove when drag starts
 
         // Bring selected shape to front
-        shapes.splice(shapes.indexOf(selectedShape), 1);
-        shapes.push(selectedShape);
+        const shapeIndex = shapes.indexOf(selectedShape);
+        if (shapeIndex !== -1 && shapeIndex < shapes.length - 1) {
+            shapes.splice(shapeIndex, 1);
+            shapes.push(selectedShape);
+        }
 
-         // Update color picker to show the shape's color, or black if it has no fill
+         // Update UI controls
          colorPicker.value = selectedShape.color || '#000000';
-         // Don't update currentColor here, only when picker is used or shape created
-
-         // --- NEW: Update text format controls if a Text shape is selected ---
          if (selectedShape instanceof Text) {
              fontSelector.value = selectedShape.fontFamily;
              boldButton.classList.toggle('selected', selectedShape.fontWeight === 'bold');
@@ -1002,25 +1048,25 @@ canvas.addEventListener('mousedown', (e) => {
              document.querySelectorAll('.align-button.selected').forEach(btn => btn.classList.remove('selected'));
              document.querySelector(`.align-button[data-align="${selectedShape.textAlign}"]`)?.classList.add('selected');
          }
-         // --------------------------------------------------------------------
 
-          console.log('Selected existing shape:', selectedShape); // Log message updated
-          redrawCanvas(); // Restore redraw here to show selection immediately
+          console.log('Selected existing shape:', selectedShape);
+          redrawCanvas(); // Show selection immediately
 
       } else {
-        // Priority 4: Clicked on background - Add new shape or deselect
-        initialMouseDownPos = null; // Not dragging a shape
+        // Priority 4: Click on background
+        initialMouseDownPos = null;
         selectedShape = null; // Deselect first
         let newShape;
         const defaultWidth = 100;
         const defaultHeight = 60;
         const defaultRadius = 40;
+        // Use canvas coords for positioning new shapes
         const shapeX = mouseX - defaultWidth / 2;
         const shapeY = mouseY - defaultHeight / 2;
         const circleCenterX = mouseX;
         const circleCenterY = mouseY;
 
-        // Only add shape if a shape tool (not line, text, or default) is selected
+        // Add new shape if a drawing tool is active
         if (currentShapeType !== 'line' && currentShapeType !== 'default' && currentShapeType !== 'text') {
              switch (currentShapeType) {
                  case 'rectangle':
@@ -1036,74 +1082,75 @@ canvas.addEventListener('mousedown', (e) => {
              if (newShape) {
                  shapes.push(newShape);
                  console.log('Added new shape:', newShape);
-                 saveState(); // Save state after adding shape
-                 setActiveTool('default'); // Reset tool to default after creating shape
+                 saveState();
+                 setActiveTool('default'); // Reset tool
+                 redrawCanvas(); // Redraw needed after adding shape and resetting tool
              }
-        } else if (currentShapeType === 'text' && !activeTextInput) { // Only start if text tool active and no input already exists
-            // NEW: Handle text tool click - Start inline text input
-            console.log(`Starting text input at (${mouseX}, ${mouseY})`);
-            redrawCanvas(); // Redraw first to clear any selections
-            startTextInput(mouseX, mouseY);
-            e.stopPropagation(); // Prevent this click from interfering with input focus
-            // Don't redraw or save state yet, wait for input completion
+        } else if (currentShapeType === 'text' && !activeTextInput) {
+            // Start inline text input using canvas coords
+            console.log(`Starting text input at canvas coords (${mouseX.toFixed(1)}, ${mouseY.toFixed(1)})`);
+            redrawCanvas(); // Clear selection
+            startTextInput(mouseX, mouseY); // Pass canvas coords
+            e.stopPropagation();
+            // State saved/redrawn when input finishes
         } else {
-             // If line or default tool is active and clicked background, just deselect
+             // Clicked background with default/line tool, or text tool already active
              console.log(`Clicked background with ${currentShapeType} tool, deselected shape.`);
-             redrawCanvas(); // Redraw needed if deselecting
+             redrawCanvas(); // Redraw needed to show deselection
         }
-        // Moved redrawCanvas calls into the specific conditions above
     }
-});
+}); // End mousedown listener
 
 // --- NEW: Functions for Inline Text Input ---
 
-function startTextInput(x, y) {
-    // Remove any existing input first (shouldn't happen often, but safety)
+// Takes CANVAS coordinates (x, y)
+function startTextInput(canvasX, canvasY) {
     if (activeTextInput) {
-        finishTextInput(activeTextInput, false); // Cancel previous one
+        finishTextInput(activeTextInput, false);
     }
 
-    // Use textarea instead of input
     const textarea = document.createElement('textarea');
     textarea.style.position = 'absolute';
-    // Position relative to the canvas's top-left corner
+
+    // --- Calculate Screen Position from Canvas Position ---
+    // Transform canvas coords (canvasX, canvasY) to screen coords
+    const screenX = canvasX * zoomLevel + offsetX;
+    const screenY = canvasY * zoomLevel + offsetY;
+
+    // Position relative to the viewport, considering canvas position and scroll
     const canvasRect = canvas.getBoundingClientRect();
-    textarea.style.left = `${canvasRect.left + window.scrollX + x}px`;
-    textarea.style.top = `${canvasRect.top + window.scrollY + y}px`;
-    // Basic styling for textarea
+    textarea.style.left = `${canvasRect.left + window.scrollX + screenX}px`;
+    textarea.style.top = `${canvasRect.top + window.scrollY + screenY}px`;
+    // -----------------------------------------------------
+
+    // Basic styling - Adjust font size based on zoom? Maybe not for input.
     textarea.style.border = '1px solid #ccc';
     textarea.style.padding = '2px';
-    textarea.style.font = `${16}px Arial`; // Match initial text size/font
+    // Use a fixed font size for the input element itself, regardless of canvas zoom
+    textarea.style.font = `16px Arial`; // Use a fixed size for the input element
     textarea.style.backgroundColor = 'white';
-    textarea.style.zIndex = '100'; // Ensure it's above the canvas
-    textarea.style.resize = 'none'; // Prevent manual resizing
-    textarea.style.overflow = 'hidden'; // Hide scrollbars initially
-    textarea.style.whiteSpace = 'pre'; // Preserve whitespace and newlines visually
-    textarea.rows = 1; // Start with one row
+    textarea.style.zIndex = '100';
+    textarea.style.resize = 'none';
+    textarea.style.overflow = 'hidden';
+    textarea.style.whiteSpace = 'pre';
+    textarea.rows = 1;
 
-    // Auto-resize textarea height based on content
     textarea.addEventListener('input', () => {
-        textarea.style.height = 'auto'; // Reset height
-        textarea.style.height = `${textarea.scrollHeight}px`; // Set to scroll height
+        textarea.style.height = 'auto';
+        textarea.style.height = `${textarea.scrollHeight}px`;
     });
 
-
-    // Add listeners
-    textarea.addEventListener('blur', handleInputBlur); // Use blur to finish
+    textarea.addEventListener('blur', handleInputBlur);
     textarea.addEventListener('keydown', handleInputKeyDown);
-    // Add a click listener to re-focus if clicked while active
     textarea.addEventListener('click', (e) => {
-        e.stopPropagation(); // Prevent click from bubbling further
+        e.stopPropagation();
         textarea.focus();
     });
-
 
     document.body.appendChild(textarea);
     activeTextInput = textarea;
-    // Delay focus slightly to ensure the element is ready
     setTimeout(() => {
         textarea.focus();
-        // Trigger initial height adjustment
         textarea.style.height = 'auto';
         textarea.style.height = `${textarea.scrollHeight}px`;
     }, 0);
@@ -1113,42 +1160,44 @@ function startTextInput(x, y) {
 // Function to start text input for EDITING an existing shape
 function startTextInputForEditing(shapeToEdit) {
     if (activeTextInput) {
-        finishTextInput(activeTextInput, false); // Cancel any previous input
+        finishTextInput(activeTextInput, false);
     }
-    editingTextShape = shapeToEdit; // Store the shape being edited
+    editingTextShape = shapeToEdit;
 
     const textarea = document.createElement('textarea');
     textarea.style.position = 'absolute';
+
+    // --- Calculate Screen Position from Shape's Canvas Position ---
+    const canvasX = shapeToEdit.x;
+    const canvasY = shapeToEdit.y;
+    const screenX = canvasX * zoomLevel + offsetX;
+    const screenY = canvasY * zoomLevel + offsetY;
     const canvasRect = canvas.getBoundingClientRect();
-    // Position textarea at the original shape's location
-    textarea.style.left = `${canvasRect.left + window.scrollX + shapeToEdit.x}px`;
-    textarea.style.top = `${canvasRect.top + window.scrollY + shapeToEdit.y}px`;
+    textarea.style.left = `${canvasRect.left + window.scrollX + screenX}px`;
+    textarea.style.top = `${canvasRect.top + window.scrollY + screenY}px`;
+    // -----------------------------------------------------------
 
-    // Apply styling from the shape being edited
-    textarea.style.font = `${shapeToEdit.fontStyle} ${shapeToEdit.fontWeight} ${shapeToEdit.fontSize}px ${shapeToEdit.fontFamily}`;
+    // Apply styling from the shape, but use fixed font size for input element
+    textarea.style.font = `${shapeToEdit.fontStyle} ${shapeToEdit.fontWeight} 16px ${shapeToEdit.fontFamily}`; // Fixed 16px size
     textarea.style.color = shapeToEdit.color;
-    textarea.style.textAlign = shapeToEdit.textAlign; // Apply text alignment
+    textarea.style.textAlign = shapeToEdit.textAlign;
 
-    // Basic textarea styling
-    textarea.style.border = '1px dashed blue'; // Indicate editing
+    textarea.style.border = '1px dashed blue';
     textarea.style.padding = '2px';
-    textarea.style.backgroundColor = 'rgba(255, 255, 255, 0.9)'; // Slightly transparent background
+    textarea.style.backgroundColor = 'rgba(255, 255, 255, 0.9)';
     textarea.style.zIndex = '100';
     textarea.style.resize = 'none';
     textarea.style.overflow = 'hidden';
-    textarea.style.whiteSpace = 'pre'; // Preserve whitespace/newlines
+    textarea.style.whiteSpace = 'pre';
 
-    // Pre-fill with existing text
     textarea.value = shapeToEdit.text;
 
-    // Auto-resize textarea height based on content
     textarea.addEventListener('input', () => {
         textarea.style.height = 'auto';
         textarea.style.height = `${textarea.scrollHeight}px`;
     });
 
-    // Add listeners
-    textarea.addEventListener('blur', handleInputBlur); // Use blur to finish
+    textarea.addEventListener('blur', handleInputBlur);
     textarea.addEventListener('keydown', handleInputKeyDown);
     textarea.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -1158,11 +1207,9 @@ function startTextInputForEditing(shapeToEdit) {
     document.body.appendChild(textarea);
     activeTextInput = textarea;
 
-    // Delay focus and initial size adjustment
     setTimeout(() => {
         textarea.focus();
-        textarea.select(); // Select existing text
-        // Trigger initial height adjustment
+        textarea.select();
         textarea.style.height = 'auto';
         textarea.style.height = `${textarea.scrollHeight}px`;
     }, 0);
@@ -1172,59 +1219,55 @@ function startTextInputForEditing(shapeToEdit) {
 
 function handleInputBlur(event) {
     console.log('Text input blurred.');
-    finishTextInput(event.target, true); // Attempt to add shape on blur
+    finishTextInput(event.target, true);
 }
 
 function handleInputKeyDown(event) {
-    console.log(`Key pressed in input: ${event.key}`); // Log all keys reaching the handler
-    // Stop the event from bubbling up to global listeners (like the delete key listener)
+    console.log(`Key pressed in input: ${event.key}`);
     event.stopPropagation();
 
-    // Let the textarea handle most keys normally (typing, including Enter for newlines)
     if (event.key === 'Escape') {
         console.log('Escape pressed in textarea.');
-        // No preventDefault needed for Escape
-        finishTextInput(event.target, false); // Cancel (don't add shape)
+        finishTextInput(event.target, false);
     }
-    // Removed the Enter key handler - Enter now creates a newline
-    // For all other keys, allow default typing behavior by not doing anything else
 }
 
 function finishTextInput(inputElement, addShape) {
-    if (!inputElement || inputElement !== activeTextInput) return; // Safety check
+    if (!inputElement || inputElement !== activeTextInput) return;
 
-    const text = inputElement.value; // Don't trim() here
+    const text = inputElement.value;
 
-    if (editingTextShape) { // Check if we are editing an existing shape
+    if (editingTextShape) {
         if (addShape && text.trim()) {
-            // Update the existing shape
             editingTextShape.text = text;
-            editingTextShape.updateDimensions(); // Recalculate dimensions
-            shapes.push(editingTextShape); // Add the updated shape back
+            editingTextShape.updateDimensions();
+            shapes.push(editingTextShape); // Add back the updated shape
             console.log('Updated text shape:', editingTextShape);
-            selectedShape = editingTextShape; // Reselect the edited shape
+            selectedShape = editingTextShape;
             saveState();
         } else {
-            // Edit cancelled or text cleared, put the original shape back
-            shapes.push(editingTextShape); // Add the original shape back unmodified
+            shapes.push(editingTextShape); // Add back the original shape
             console.log('Text edit cancelled or cleared, restoring original shape.');
-            selectedShape = editingTextShape; // Reselect the original shape
+            selectedShape = editingTextShape;
         }
-        editingTextShape = null; // Clear the editing state
-    } else { // Creating a new shape
-        if (addShape && text.trim()) { // Only add if there's non-whitespace content
-            // Get position from the textarea element's style (relative to viewport)
-            // and convert back to canvas coordinates
+        editingTextShape = null;
+    } else { // Creating new shape
+        if (addShape && text.trim()) {
+            // --- Get Canvas Position from Input Element's Screen Position ---
             const canvasRect = canvas.getBoundingClientRect();
             const inputRect = inputElement.getBoundingClientRect();
-            const canvasX = inputRect.left - canvasRect.left;
-            const canvasY = inputRect.top - canvasRect.top;
+            // Screen position relative to canvas top-left
+            const screenX = inputRect.left - canvasRect.left;
+            const screenY = inputRect.top - canvasRect.top;
+            // Transform back to canvas coordinates
+            const canvasX = (screenX - offsetX) / zoomLevel;
+            const canvasY = (screenY - offsetY) / zoomLevel;
+            // -------------------------------------------------------------
 
-            // Create the Text shape
-            const newTextShape = new Text(canvasX, canvasY, text, currentColor || '#000000'); // Use current color or black
+            const newTextShape = new Text(canvasX, canvasY, text, currentColor || '#000000');
             shapes.push(newTextShape);
             console.log('Added new text shape:', newTextShape);
-            selectedShape = newTextShape; // Select the newly created shape
+            selectedShape = newTextShape;
             saveState();
         } else {
             console.log('New text input cancelled or empty.');
@@ -1234,39 +1277,29 @@ function finishTextInput(inputElement, addShape) {
     // Cleanup
     inputElement.removeEventListener('blur', handleInputBlur);
     inputElement.removeEventListener('keydown', handleInputKeyDown);
-    inputElement.removeEventListener('input', () => {}); // Remove the auto-resize listener (find a better way if needed)
-    // Find the click listener to remove it
-    const clickListener = Array.from(inputElement.getEventListeners?.('click') || []).find(l => l.listener.toString().includes('textarea.focus()'));
-    if (clickListener) {
-        inputElement.removeEventListener('click', clickListener.listener);
-    }
+    // Remove other listeners if necessary
     document.body.removeChild(inputElement);
     activeTextInput = null;
-    editingTextShape = null; // Ensure this is cleared on cleanup too
+    editingTextShape = null;
     console.log('Textarea element removed.');
-    redrawCanvas(); // Redraw canvas after finishing input/edit
-
-    // DO NOT reset tool here; it should remain 'text' until explicitly changed
-    // setActiveTool('default'); // REMOVED THIS LINE
+    redrawCanvas();
 }
 
 // --- END: Functions for Inline Text Input ---
 
 
-// --- NEW: Double-click listener for editing text ---
+// --- Double-click listener for editing text ---
 canvas.addEventListener('dblclick', (e) => {
-    // Prevent starting new text input on double-click
     if (activeTextInput) return;
 
-    const rect = canvas.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
+    const mousePos = getMousePos(e); // Use canvas coords
+    const mouseX = mousePos.x;
+    const mouseY = mousePos.y;
 
-    // Find the top-most text shape that was double-clicked
     let clickedTextShape = null;
     for (let i = shapes.length - 1; i >= 0; i--) {
         const shape = shapes[i];
-        // Check if it's a Text object and the click is inside
+        // Use canvas coords for isInside check
         if (shape instanceof Text && shape.isInside(mouseX, mouseY)) {
             clickedTextShape = shape;
             break;
@@ -1275,102 +1308,90 @@ canvas.addEventListener('dblclick', (e) => {
 
     if (clickedTextShape) {
         console.log('Editing text shape:', clickedTextShape);
-        // Instead of prompt, reuse the textarea mechanism for editing
-        // Remove the old shape temporarily
         const index = shapes.indexOf(clickedTextShape);
         if (index > -1) {
             shapes.splice(index, 1);
         }
-        selectedShape = null; // Deselect while editing
-        redrawCanvas(); // Redraw without the shape being edited
+        selectedShape = null;
+        redrawCanvas(); // Redraw without the shape
 
-        // Start a new textarea at the shape's position, pre-filled with its text
+        // Start editing using the shape's canvas coords
         startTextInputForEditing(clickedTextShape);
     }
 });
 // ----------------------------------------------------
 
 canvas.addEventListener('mousemove', (e) => {
-    const rect = canvas.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
-    let cursor = currentCursor; // Start with current cursor
+    const mousePos = getMousePos(e); // Use transformed coordinates
+    const mouseX = mousePos.x;
+    const mouseY = mousePos.y;
+    let cursor = currentCursor;
 
-    // --- Initiate Dragging ---
-    // If a shape is selected, we're not currently dragging/resizing/rotating,
-    // and the mouse has moved beyond the threshold since mousedown: start dragging.
+    // --- Initiate Dragging (using canvas coords) ---
     if (selectedShape && !isDragging && !isResizing && !isRotating && initialMouseDownPos) {
-        const dx = mouseX - initialMouseDownPos.x;
+        const dx = mouseX - initialMouseDownPos.x; // Difference in canvas coords
         const dy = mouseY - initialMouseDownPos.y;
-        if (Math.sqrt(dx * dx + dy * dy) > dragThreshold) {
-            isDragging = true; // Start dragging now
+        // Drag threshold check still uses pixel distance, but calculated in canvas space
+        if (Math.sqrt(dx * dx + dy * dy) * zoomLevel > dragThreshold) { // Scale threshold check
+            isDragging = true;
             console.log('Drag threshold exceeded, starting drag.');
-            // Calculate drag offset based on CURRENT mouse and shape position
+            // Calculate drag offset using canvas coords
             dragOffsetX = mouseX - selectedShape.x;
             dragOffsetY = mouseY - selectedShape.y;
-            if (selectedShape instanceof Circle) { // Circle offset is relative to center
+            if (selectedShape instanceof Circle) {
                 dragOffsetX = mouseX - selectedShape.x;
                 dragOffsetY = mouseY - selectedShape.y;
             }
-            if (selectedShape instanceof Line) { // Line offset is relative to start point
+            if (selectedShape instanceof Line) {
                 dragOffsetX = mouseX - selectedShape.x1;
                 dragOffsetY = mouseY - selectedShape.y1;
-                // Ensure dx/dy are stored for line dragging
                 selectedShape.dx = selectedShape.x2 - selectedShape.x1;
                 selectedShape.dy = selectedShape.y2 - selectedShape.y1;
             }
-            // Set appropriate cursor now that dragging has started
             cursor = getCursorForHandle(null); // 'grabbing'
         }
     }
 
-    // --- Handle Rotation ---
+    // --- Handle Rotation (using canvas coords) ---
     if (isRotating && selectedShape && shapeCenter) {
-        const dx = mouseX - shapeCenter.x;
+        const dx = mouseX - shapeCenter.x; // Use canvas coords
         const dy = mouseY - shapeCenter.y;
         const currentAngle = Math.atan2(dy, dx);
-
-        // Calculate the change in angle since the last mousemove (or mousedown)
         let angleDelta = currentAngle - rotationStartAngle;
-
-        // Apply the delta to the shape's angle
         selectedShape.angle += angleDelta;
-
-        // Update the start angle for the next mousemove event
         rotationStartAngle = currentAngle;
-
-        cursor = getCursorForHandle('rotation'); // Should be 'grabbing'
+        cursor = getCursorForHandle('rotation');
         redrawCanvas();
 
-    // --- Handle Resizing ---
+    // --- Handle Resizing (using canvas coords) ---
     } else if (isResizing && selectedShape && activeHandle && selectedShape.initialCenter) {
         const shape = selectedShape;
-        const minSize = handleSize * 2; // Minimum width/height or radius
+        const minSize = handleSize * 2; // Min size in canvas units
 
-        // Retrieve initial state stored on mousedown
+        // Initial state is already in canvas units
         const initialX = shape.initialX;
         const initialY = shape.initialY;
         const initialW = shape.initialWidth;
         const initialH = shape.initialHeight;
         const initialAngle = shape.initialAngle;
         const initialCenter = shape.initialCenter;
-        const initialRadius = shape.initialRadius; // For circles
+        const initialRadius = shape.initialRadius;
 
-        // Transform current mouse coordinates into the shape's initial unrotated frame
-        const cosInitial = Math.cos(-initialAngle); // Use negative angle for reverse rotation
+        // Transform current canvas mouse coords into the shape's initial unrotated frame
+        const cosInitial = Math.cos(-initialAngle);
         const sinInitial = Math.sin(-initialAngle);
-        const localX = mouseX - initialCenter.x;
+        const localX = mouseX - initialCenter.x; // Use current canvas mouse coords
         const localY = mouseY - initialCenter.y;
         const transformedMouseX = localX * cosInitial - localY * sinInitial + initialCenter.x;
         const transformedMouseY = localX * sinInitial + localY * cosInitial + initialCenter.y;
 
-        // Calculate new dimensions/position based on handle type using TRANSFORMED mouse coords
-        // and INITIAL dimensions/position
+        // Calculate new dimensions/position based on handle (using transformed canvas coords)
         let newX = initialX;
         let newY = initialY;
         let newW = initialW;
         let newH = initialH;
 
+        // Calculations remain the same, but use canvas units
         switch (activeHandle) {
             case 'top-left':
                 newW = Math.max(minSize, initialX + initialW - transformedMouseX);
@@ -1381,157 +1402,114 @@ canvas.addEventListener('mousemove', (e) => {
             case 'top-center':
                  newH = Math.max(minSize, initialY + initialH - transformedMouseY);
                  newY = initialY + initialH - newH;
-                 // newX = initialX; // X and W don't change
-                 // newW = initialW;
                  break;
             case 'top-right':
                 newW = Math.max(minSize, transformedMouseX - initialX);
                 newH = Math.max(minSize, initialY + initialH - transformedMouseY);
-                // newX = initialX; // X doesn't change
                 newY = initialY + initialH - newH;
                  break;
             case 'middle-left':
                 newW = Math.max(minSize, initialX + initialW - transformedMouseX);
                 newX = initialX + initialW - newW;
-                // newY = initialY; // Y and H don't change
-                // newH = initialH;
                  break;
             case 'middle-right':
                 newW = Math.max(minSize, transformedMouseX - initialX);
-                 // newX = initialX; // X doesn't change
-                 // newY = initialY; // Y and H don't change
-                 // newH = initialH;
                 break;
             case 'bottom-left':
                 newW = Math.max(minSize, initialX + initialW - transformedMouseX);
                 newH = Math.max(minSize, transformedMouseY - initialY);
                 newX = initialX + initialW - newW;
-                 // newY = initialY; // Y doesn't change
                  break;
             case 'bottom-center':
                  newH = Math.max(minSize, transformedMouseY - initialY);
-                 // newX = initialX; // X and W don't change
-                 // newW = initialW;
-                 // newY = initialY; // Y doesn't change
                 break;
             case 'bottom-right':
                  newW = Math.max(minSize, transformedMouseX - initialX);
                  newH = Math.max(minSize, transformedMouseY - initialY);
-                 // newX = initialX; // X doesn't change
-                 // newY = initialY; // Y doesn't change
                 break;
         }
 
-        // Apply the calculated new dimensions and position
         shape.width = newW;
         shape.height = newH;
         shape.x = newX;
         shape.y = newY;
 
-        // --- NEW: Specific handling for Text ---
         if (shape instanceof Text) {
-            // Scale font size based on the change in height
-            const initialFontSize = shape.initialFontSize || 16; // Get initial font size
-            const minFontSize = 4; // Minimum font size
-            if (initialH > 0) { // Avoid division by zero
-                 // Calculate new font size proportionally to height change
+            const initialFontSize = shape.initialFontSize || 16;
+            const minFontSize = 4;
+            if (initialH > 0) {
                  let calculatedFontSize = initialFontSize * (newH / initialH);
-                 shape.fontSize = Math.max(minFontSize, calculatedFontSize); // Apply minimum size
+                 shape.fontSize = Math.max(minFontSize, calculatedFontSize);
             }
-            // Recalculate width/height based on new font size and text content
             shape.updateDimensions();
-            // Re-apply calculated position after updateDimensions
-            shape.x = newX;
+            shape.x = newX; // Re-apply position after dimension update
             shape.y = newY;
         }
-        // ------------------------------------
 
-        // Specific handling for Circle: maintain center, adjust radius based on transformed mouse
         if (shape instanceof Circle) {
-            // Calculate distance from initial center to transformed mouse
             const dx = transformedMouseX - initialCenter.x;
             const dy = transformedMouseY - initialCenter.y;
             let newRadius = Math.sqrt(dx * dx + dy * dy);
-
-            // Adjust radius based on which handle is dragged (approximate)
-            // This part is tricky for circles. A simpler approach might be needed.
-            // Let's try basing radius on average change from center for corners/sides.
-            if (activeHandle.includes('left') || activeHandle.includes('right')) {
-                newRadius = Math.abs(dx);
-            } else if (activeHandle.includes('top') || activeHandle.includes('bottom')) {
-                newRadius = Math.abs(dy);
-            } else { // Corner handles
-                 newRadius = (Math.abs(dx) + Math.abs(dy)) / 2; // Average distance change
-            }
+            // Simplified radius adjustment for demo
+            if (activeHandle.includes('left') || activeHandle.includes('right')) newRadius = Math.abs(dx);
+            else if (activeHandle.includes('top') || activeHandle.includes('bottom')) newRadius = Math.abs(dy);
+            else newRadius = (Math.abs(dx) + Math.abs(dy)) / 2;
 
             shape.radius = Math.max(minSize / 2, newRadius);
-
-            // Circle x/y is center, it should remain at initialCenter during resize
-            shape.x = initialCenter.x;
+            shape.x = initialCenter.x; // Keep center fixed
             shape.y = initialCenter.y;
         }
 
-        cursor = getCursorForHandle(activeHandle); // Cursor logic might still need adjustment for rotation
+        cursor = getCursorForHandle(activeHandle);
         redrawCanvas();
 
-    // --- Handle Shape Dragging ---
+    // --- Handle Shape Dragging (using canvas coords) ---
     } else if (isDragging && selectedShape) {
-        const newX = mouseX - dragOffsetX;
+        const newX = mouseX - dragOffsetX; // Use canvas coords
         const newY = mouseY - dragOffsetY;
 
         if (selectedShape instanceof Line) {
-            // Line dragging logic (unaffected by rotation implementation)
             selectedShape.x1 = newX;
             selectedShape.y1 = newY;
             selectedShape.x2 = newX + selectedShape.dx;
             selectedShape.y2 = newY + selectedShape.dy;
-            selectedShape.x = newX; // Update base x/y too
-            selectedShape.y = newY;
-        } else if (selectedShape instanceof Circle) {
-            // Circle's x,y is its center
             selectedShape.x = newX;
             selectedShape.y = newY;
-        } else {
-            // Rectangle, Diamond, Text - x,y is top-left
+        } else { // Circle, Rectangle, Diamond, Text
             selectedShape.x = newX;
             selectedShape.y = newY;
         }
-        cursor = getCursorForHandle(null); // Should be 'grabbing'
+        cursor = getCursorForHandle(null); // 'grabbing'
         redrawCanvas();
 
-    // --- Handle Line Drawing Preview ---
+    // --- Handle Line Drawing Preview (using canvas coords) ---
     } else if (isDrawingLine) {
-        tempLineEndX = mouseX;
+        tempLineEndX = mouseX; // Use canvas coords
         tempLineEndY = mouseY;
         cursor = 'crosshair';
         redrawCanvas();
 
-    // --- Handle Hovering (for cursor changes) ---
+    // --- Handle Hovering (check using canvas coords) ---
     } else {
-        // Check if hovering over a handle
-        const handleType = getHandleAt(mouseX, mouseY);
+        const handleType = getHandleAt(mouseX, mouseY); // Check handles in canvas coords
         if (handleType) {
             cursor = getCursorForHandle(handleType);
         } else {
-            // Check if hovering over a shape
              let hoveredShape = null;
              for (let i = shapes.length - 1; i >= 0; i--) {
+                 // Use canvas coords for isInside check
                  if (shapes[i].isInside(mouseX, mouseY)) {
                      hoveredShape = shapes[i];
                      break;
                  }
              }
              if (hoveredShape) {
-                 cursor = 'move'; // Indicate shape is draggable
+                 cursor = 'move';
              } else {
-                 // Hovering over empty space
-                 if (currentShapeType === 'rectangle' || currentShapeType === 'circle' || currentShapeType === 'diamond' || currentShapeType === 'line') {
-                     cursor = 'crosshair'; // Show crosshair if a drawing tool is active
-                 } else if (currentShapeType === 'text') {
-                     cursor = 'text'; // Show text cursor for text tool
-                 } else {
-                     cursor = 'default'; // Otherwise, default arrow
-                 }
+                 // Set cursor based on active tool
+                 if (currentShapeType === 'rectangle' || currentShapeType === 'circle' || currentShapeType === 'diamond' || currentShapeType === 'line') cursor = 'crosshair';
+                 else if (currentShapeType === 'text') cursor = 'text';
+                 else cursor = 'default';
              }
         }
     }
@@ -1541,135 +1519,162 @@ canvas.addEventListener('mousemove', (e) => {
          canvas.style.cursor = cursor;
          currentCursor = cursor;
      }
-});
+}); // End mousemove listener
 
 canvas.addEventListener('mouseup', (e) => {
-    let stateChanged = false; // Flag to check if we need to save state
+    const mousePos = getMousePos(e); // Use canvas coords
+    const mouseX = mousePos.x;
+    const mouseY = mousePos.y;
+    let stateChanged = false;
 
-    // Finalize rotation
     if (isRotating) {
         console.log('Finished rotating shape:', selectedShape);
         isRotating = false;
         activeHandle = null;
         shapeCenter = null;
-        stateChanged = true; // Rotation changes state
-        // Set cursor back to default or move
-        canvas.style.cursor = selectedShape ? getCursorForHandle(null) : 'default';
-        currentCursor = canvas.style.cursor;
-        // No redraw needed here, mousemove already did it. Save state below.
+        stateChanged = true;
+        // Cursor updated by mousemove hover logic
     }
 
-    // Finalize resizing
     if (isResizing) {
         console.log('Finished resizing shape:', selectedShape);
-        // TODO: Resizing rotated shapes needs fixing. -> FIXED (mostly)
         isResizing = false;
         activeHandle = null;
-        // --- Clean up initial state properties ---
-        if (selectedShape) {
-            delete selectedShape.initialX;
-            delete selectedShape.initialY;
-            delete selectedShape.initialWidth;
-            delete selectedShape.initialHeight;
-            delete selectedShape.initialRadius;
-            delete selectedShape.initialAngle;
-            delete selectedShape.initialCenter;
-            delete selectedShape.initialMouseX;
-            delete selectedShape.initialMouseY;
+        if (selectedShape) { // Clean up initial state properties
+            delete selectedShape.initialX; delete selectedShape.initialY;
+            delete selectedShape.initialWidth; delete selectedShape.initialHeight;
+            delete selectedShape.initialRadius; delete selectedShape.initialAngle;
+            delete selectedShape.initialCenter; delete selectedShape.initialMouseX;
+            delete selectedShape.initialMouseY; delete selectedShape.initialFontSize;
         }
-        // ---------------------------------------
-        stateChanged = true; // Resizing changes state
-        // Set cursor back to default or move
-        canvas.style.cursor = selectedShape ? getCursorForHandle(null) : 'default'; // Use getCursorForHandle for consistency
-        currentCursor = canvas.style.cursor;
-        // redrawCanvas(); // Redraw needed to potentially update cursor based on hover after resize - Handled below
+        stateChanged = true;
+        // Cursor updated by mousemove hover logic
     }
 
-    // Finalize dragging
     if (isDragging) {
         console.log('Finished dragging shape:', selectedShape);
         isDragging = false;
-        stateChanged = true; // Dragging changes state
-        // Set cursor back to default or move
-        canvas.style.cursor = selectedShape ? getCursorForHandle(null) : 'default';
-        currentCursor = canvas.style.cursor;
+        stateChanged = true;
+        // Cursor updated by mousemove hover logic
     }
 
-    // Finalize line drawing
+    // Finalize line drawing (using canvas coords)
     if (isDrawingLine) {
-        const rect = canvas.getBoundingClientRect();
-        const mouseX = e.clientX - rect.left;
-        const mouseY = e.clientY - rect.top;
+        // Use final canvas coords from mouseup event
         if (lineStartX !== mouseX || lineStartY !== mouseY) {
             const newLine = new Line(lineStartX, lineStartY, mouseX, mouseY, currentColor);
             shapes.push(newLine);
             console.log('Added new line:', newLine);
-            stateChanged = true; // Adding a line changes state
-             // selectedShape = newLine; // Optionally select
+            stateChanged = true;
         } else {
              console.log('Line drawing cancelled (start=end).');
          }
         isDrawingLine = false;
-        // redrawCanvas(); // Handled below
-        if (stateChanged) { // Only reset tool if a line was actually added
-            setActiveTool('default'); // Reset tool after finishing line draw
+        if (stateChanged) {
+            setActiveTool('default'); // Reset tool only if line was added
         }
+        // Redraw handled below
     }
 
-    // Save state if any action modified shapes
     if (stateChanged) {
         saveState();
     }
 
-    // Cursor should be handled by mousemove or setActiveTool now.
-    // No longer need to force reset here.
-     // canvas.style.cursor = 'default';
-     // currentCursor = 'default';
+    // Redraw needed if state changed or selection exists, to show final state/cursor
+    if (stateChanged || selectedShape) {
+        redrawCanvas();
+        // Trigger a fake mousemove to update cursor based on final position/state
+        const moveEvent = new MouseEvent('mousemove', {
+            clientX: e.clientX,
+            clientY: e.clientY
+        });
+        canvas.dispatchEvent(moveEvent);
+    }
+    initialMouseDownPos = null; // Clear initial position
+}); // End mouseup listener
 
-     // Ensure redraw happens after flags are reset if a shape is still selected
-     if (selectedShape) {
-         redrawCanvas();
-     }
-     initialMouseDownPos = null; // Clear initial mouse down position
- });
-
-canvas.addEventListener('mouseleave', () => {
-    // Cancel any ongoing drawing/dragging/resizing
+canvas.addEventListener('mouseleave', (e) => {
+    let needsRedraw = false;
     if (isDrawingLine) {
         isDrawingLine = false;
         console.log('Line drawing cancelled (mouse left canvas)');
-        redrawCanvas();
+        needsRedraw = true;
     }
     if (isDragging) {
         isDragging = false;
         console.log('Dragging stopped (mouse left canvas)');
-        redrawCanvas(); // May need redraw if shape position needs snapping back etc.
+        // Optionally snap back or save state here if needed
+        needsRedraw = true;
     }
     if (isResizing) {
-        isResizing = false;
-        activeHandle = null;
-         console.log('Resizing cancelled (mouse left canvas)');
-         redrawCanvas(); // Redraw without handles
+        isResizing = false; activeHandle = null;
+        console.log('Resizing cancelled (mouse left canvas)');
+        // Optionally revert changes or save state here if needed
+        needsRedraw = true;
     }
     if (isRotating) {
-        isRotating = false;
-        activeHandle = null;
-        shapeCenter = null;
+        isRotating = false; activeHandle = null; shapeCenter = null;
         console.log('Rotation cancelled (mouse left canvas)');
-        redrawCanvas(); // Redraw without handles
+        // Optionally revert changes or save state here if needed
+        needsRedraw = true;
     }
-    // Reset cursor only if not actively doing something else (should be covered above)
+
+    if (needsRedraw) {
+        redrawCanvas();
+    }
+    // Reset cursor to default if nothing else is active
     if (!isDragging && !isResizing && !isRotating && !isDrawingLine) {
         canvas.style.cursor = 'default';
         currentCursor = 'default';
     }
-    initialMouseDownPos = null; // Clear initial mouse down position if mouse leaves
+    initialMouseDownPos = null;
+}); // End mouseleave listener
+
+
+// --- NEW: Wheel Event Listener for Zooming ---
+canvas.addEventListener('wheel', (e) => {
+    e.preventDefault(); // Prevent page scrolling
+
+    const rect = canvas.getBoundingClientRect();
+    // Mouse position relative to canvas element (screen coords)
+    const mouseXScreen = e.clientX - rect.left;
+    const mouseYScreen = e.clientY - rect.top;
+
+    // Calculate mouse position in canvas coordinates BEFORE zoom
+    const mouseXCanvasBefore = (mouseXScreen - offsetX) / zoomLevel;
+    const mouseYCanvasBefore = (mouseYScreen - offsetY) / zoomLevel;
+
+    // Calculate new zoom level
+    const zoomFactor = 1.1;
+    let newZoomLevel;
+    if (e.deltaY < 0) { // Zoom in
+        newZoomLevel = zoomLevel * zoomFactor;
+    } else { // Zoom out
+        newZoomLevel = zoomLevel / zoomFactor;
+    }
+    // Clamp zoom level
+    newZoomLevel = Math.max(minZoom, Math.min(maxZoom, newZoomLevel));
+
+    // Calculate the change in offset to keep the point under the mouse stationary
+    offsetX = mouseXScreen - mouseXCanvasBefore * newZoomLevel;
+    offsetY = mouseYScreen - mouseYCanvasBefore * newZoomLevel;
+
+    // Update zoom level
+    zoomLevel = newZoomLevel;
+
+    console.log(`Zoom: ${zoomLevel.toFixed(2)}, Offset: (${offsetX.toFixed(1)}, ${offsetY.toFixed(1)})`);
+    redrawCanvas();
+
+    // Update cursor based on new zoom/position
+    const moveEvent = new MouseEvent('mousemove', { clientX: e.clientX, clientY: e.clientY });
+    canvas.dispatchEvent(moveEvent);
 });
+// -----------------------------------------
+
 
 // Delete selected shape / Handle global keys
 document.addEventListener('keydown', (e) => {
-    // If the text input is active, let it handle the keydown event exclusively
-    if (activeTextInput) {
+    if (activeTextInput) { // Let text input handle keys
         return;
     }
 
@@ -1681,26 +1686,20 @@ document.addEventListener('keydown', (e) => {
             shapes.splice(index, 1);
         }
         selectedShape = null;
-        if (isDrawingLine) {
-             isDrawingLine = false;
-             console.log("Line drawing cancelled by delete key.");
-        }
-         if (isResizing) {
-             isResizing = false;
-             activeHandle = null;
-             console.log("Resizing cancelled by delete key.");
-         }
-         // NEW: Cancel rotation on delete
-         if (isRotating) {
-             isRotating = false;
-             activeHandle = null;
-             shapeCenter = null;
-             console.log("Rotation cancelled by delete key.");
-         }
+        // Cancel any ongoing actions associated with the deleted shape
+        isDrawingLine = false;
+        isResizing = false; activeHandle = null;
+        isRotating = false; shapeCenter = null;
+        isDragging = false; // Also cancel dragging if somehow active
+
         redrawCanvas();
-        saveState(); // Save state after deleting
+        saveState();
     }
-});
+
+    // --- Potential Future Keybindings (e.g., panning with arrow keys) ---
+    // if (e.key === 'ArrowUp') { offsetX += 10; redrawCanvas(); }
+    // etc.
+}); // End keydown listener
 
 
 // --- Listen for Menu Actions via Preload ---
