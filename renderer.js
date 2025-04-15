@@ -43,6 +43,7 @@ let activeHandle = null; // Stores the type ('top-left', 'rotation', etc.) of th
 const handleSize = 8; // Size of the square resize handles
 let currentCursor = 'default'; // To manage cursor style changes
 let activeTextInput = null; // Reference to the currently active text input element
+let editingTextShape = null; // Store the shape being edited
 let initialMouseDownPos = null; // Store mouse position on mousedown
 const dragThreshold = 3; // Pixels mouse must move to initiate drag
 
@@ -448,10 +449,18 @@ class Text extends Shape {
     updateDimensions() {
         // Construct font string with style and weight
         ctx.font = `${this.fontStyle} ${this.fontWeight} ${this.fontSize}px ${this.fontFamily}`;
-        const metrics = ctx.measureText(this.text);
-        this.width = metrics.width;
-        // Approximate height based on font size
-        this.height = this.fontSize; // Keep this simple for now
+        // Calculate height based on line count and font size (approximate line height)
+        const lines = this.text.split('\n');
+        const lineHeight = this.fontSize * 1.2; // Approximate line height
+        this.height = lines.length * lineHeight;
+        // Find the width of the longest line
+        this.width = 0;
+        lines.forEach(line => {
+            const metrics = ctx.measureText(line);
+            if (metrics.width > this.width) {
+                this.width = metrics.width;
+            }
+        });
     }
 
     getCenter() {
@@ -467,50 +476,56 @@ class Text extends Shape {
         ctx.textAlign = this.textAlign; // Use the shape's alignment property
         ctx.textBaseline = 'top'; // Render text starting from the top-left corner (this.x, this.y)
 
-        // Adjust draw position based on alignment
-        let drawX = this.x;
-        if (this.textAlign === 'center') {
-            drawX = this.x + this.width / 2;
-        } else if (this.textAlign === 'right') {
-            drawX = this.x + this.width;
-        }
+        // --- Draw Multiline Text ---
+        const lines = this.text.split('\n');
+        const lineHeight = this.fontSize * 1.2; // Use the same approximate line height as in updateDimensions
+        let currentY = this.y;
 
-        ctx.fillText(this.text, drawX, this.y);
-
-        // --- Manual Underline ---
-        if (this.textDecoration === 'underline') {
-            // Recalculate dimensions just in case (might be redundant if updateDimensions called recently)
-            // this.updateDimensions(); // Let's assume dimensions are up-to-date from resize/creation
-            ctx.strokeStyle = this.color; // Use text color for underline
-            ctx.lineWidth = Math.max(1, Math.floor(this.fontSize / 16)); // Basic underline thickness scaling
-
-            let lineY = this.y + this.height + 1; // Position slightly below baseline (top + height)
-            let lineStartX = this.x;
-            let lineEndX = this.x + this.width;
-
-            // Adjust underline position based on alignment
+        lines.forEach(line => {
+            // Adjust drawX per line for alignment
+            let lineDrawX = this.x; // Default to left
             if (this.textAlign === 'center') {
-                // For center, the underline should span the actual text width, centered within the box
-                // Re-measure text with current settings to get precise width
-                ctx.font = `${this.fontStyle} ${this.fontWeight} ${this.fontSize}px ${this.fontFamily}`;
-                const metrics = ctx.measureText(this.text);
-                const textWidth = metrics.width;
-                lineStartX = this.x + (this.width - textWidth) / 2;
-                lineEndX = lineStartX + textWidth;
+                const metrics = ctx.measureText(line);
+                lineDrawX = this.x + (this.width - metrics.width) / 2; // Center this specific line within the bounding box
             } else if (this.textAlign === 'right') {
-                 // For right, the underline should span the actual text width, aligned right
-                 ctx.font = `${this.fontStyle} ${this.fontWeight} ${this.fontSize}px ${this.fontFamily}`;
-                 const metrics = ctx.measureText(this.text);
-                 const textWidth = metrics.width;
-                 lineStartX = this.x + this.width - textWidth;
-                 lineEndX = this.x + this.width;
+                const metrics = ctx.measureText(line);
+                lineDrawX = this.x + this.width - metrics.width; // Align this specific line to the right edge of the bounding box
             }
-            // For 'left', it's already correct (this.x to this.x + this.width)
+            ctx.fillText(line, lineDrawX, currentY);
+            currentY += lineHeight;
+        });
+        // --- End Draw Multiline Text ---
 
-            ctx.beginPath();
-            ctx.moveTo(lineStartX, lineY);
-            ctx.lineTo(lineEndX, lineY);
-            ctx.stroke();
+
+        // --- Manual Underline (Adjusted for Multiline) ---
+        if (this.textDecoration === 'underline') {
+            ctx.strokeStyle = this.color;
+            ctx.lineWidth = Math.max(1, Math.floor(this.fontSize / 16));
+            currentY = this.y; // Reset Y for underline drawing
+
+            lines.forEach(line => {
+                const metrics = ctx.measureText(line);
+                const textWidth = metrics.width;
+                let lineStartX = this.x; // Default left
+                let lineEndX = this.x + textWidth; // Underline only the text itself
+
+                if (this.textAlign === 'center') {
+                    lineStartX = this.x + (this.width - textWidth) / 2;
+                    lineEndX = lineStartX + textWidth;
+                } else if (this.textAlign === 'right') {
+                    lineStartX = this.x + this.width - textWidth;
+                    lineEndX = lineStartX + textWidth;
+                }
+
+                const underlineY = currentY + lineHeight - (lineHeight - this.fontSize); // Position slightly below baseline
+
+                ctx.beginPath();
+                ctx.moveTo(lineStartX, underlineY);
+                ctx.lineTo(lineEndX, underlineY);
+                ctx.stroke();
+
+                currentY += lineHeight; // Move to next line's position
+            });
             ctx.lineWidth = 1; // Reset line width
         }
         // --- End Manual Underline ---
@@ -1048,36 +1063,112 @@ function startTextInput(x, y) {
         finishTextInput(activeTextInput, false); // Cancel previous one
     }
 
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.style.position = 'absolute';
+    // Use textarea instead of input
+    const textarea = document.createElement('textarea');
+    textarea.style.position = 'absolute';
     // Position relative to the canvas's top-left corner
     const canvasRect = canvas.getBoundingClientRect();
-    input.style.left = `${canvasRect.left + window.scrollX + x}px`;
-    input.style.top = `${canvasRect.top + window.scrollY + y}px`;
-    // Restore basic styling:
-    input.style.border = '1px solid #ccc';
-    input.style.padding = '2px';
-    input.style.font = `${16}px Arial`;
-    input.style.backgroundColor = 'white';
-    input.style.zIndex = '100'; // Ensure it's above the canvas
+    textarea.style.left = `${canvasRect.left + window.scrollX + x}px`;
+    textarea.style.top = `${canvasRect.top + window.scrollY + y}px`;
+    // Basic styling for textarea
+    textarea.style.border = '1px solid #ccc';
+    textarea.style.padding = '2px';
+    textarea.style.font = `${16}px Arial`; // Match initial text size/font
+    textarea.style.backgroundColor = 'white';
+    textarea.style.zIndex = '100'; // Ensure it's above the canvas
+    textarea.style.resize = 'none'; // Prevent manual resizing
+    textarea.style.overflow = 'hidden'; // Hide scrollbars initially
+    textarea.style.whiteSpace = 'pre'; // Preserve whitespace and newlines visually
+    textarea.rows = 1; // Start with one row
 
-    // Add listeners
-    input.addEventListener('blur', handleInputBlur); // Restore blur listener
-    input.addEventListener('keydown', handleInputKeyDown);
-    // Add a click listener to re-focus if clicked while active
-    input.addEventListener('click', (e) => {
-        e.stopPropagation(); // Prevent click from bubbling further
-        input.focus();
+    // Auto-resize textarea height based on content
+    textarea.addEventListener('input', () => {
+        textarea.style.height = 'auto'; // Reset height
+        textarea.style.height = `${textarea.scrollHeight}px`; // Set to scroll height
     });
 
 
-    document.body.appendChild(input);
-    activeTextInput = input;
+    // Add listeners
+    textarea.addEventListener('blur', handleInputBlur); // Use blur to finish
+    textarea.addEventListener('keydown', handleInputKeyDown);
+    // Add a click listener to re-focus if clicked while active
+    textarea.addEventListener('click', (e) => {
+        e.stopPropagation(); // Prevent click from bubbling further
+        textarea.focus();
+    });
+
+
+    document.body.appendChild(textarea);
+    activeTextInput = textarea;
     // Delay focus slightly to ensure the element is ready
-    setTimeout(() => input.focus(), 0);
-    console.log('Text input element created, focusing shortly.');
+    setTimeout(() => {
+        textarea.focus();
+        // Trigger initial height adjustment
+        textarea.style.height = 'auto';
+        textarea.style.height = `${textarea.scrollHeight}px`;
+    }, 0);
+    console.log('Textarea element created, focusing shortly.');
 }
+
+// Function to start text input for EDITING an existing shape
+function startTextInputForEditing(shapeToEdit) {
+    if (activeTextInput) {
+        finishTextInput(activeTextInput, false); // Cancel any previous input
+    }
+    editingTextShape = shapeToEdit; // Store the shape being edited
+
+    const textarea = document.createElement('textarea');
+    textarea.style.position = 'absolute';
+    const canvasRect = canvas.getBoundingClientRect();
+    // Position textarea at the original shape's location
+    textarea.style.left = `${canvasRect.left + window.scrollX + shapeToEdit.x}px`;
+    textarea.style.top = `${canvasRect.top + window.scrollY + shapeToEdit.y}px`;
+
+    // Apply styling from the shape being edited
+    textarea.style.font = `${shapeToEdit.fontStyle} ${shapeToEdit.fontWeight} ${shapeToEdit.fontSize}px ${shapeToEdit.fontFamily}`;
+    textarea.style.color = shapeToEdit.color;
+    textarea.style.textAlign = shapeToEdit.textAlign; // Apply text alignment
+
+    // Basic textarea styling
+    textarea.style.border = '1px dashed blue'; // Indicate editing
+    textarea.style.padding = '2px';
+    textarea.style.backgroundColor = 'rgba(255, 255, 255, 0.9)'; // Slightly transparent background
+    textarea.style.zIndex = '100';
+    textarea.style.resize = 'none';
+    textarea.style.overflow = 'hidden';
+    textarea.style.whiteSpace = 'pre'; // Preserve whitespace/newlines
+
+    // Pre-fill with existing text
+    textarea.value = shapeToEdit.text;
+
+    // Auto-resize textarea height based on content
+    textarea.addEventListener('input', () => {
+        textarea.style.height = 'auto';
+        textarea.style.height = `${textarea.scrollHeight}px`;
+    });
+
+    // Add listeners
+    textarea.addEventListener('blur', handleInputBlur); // Use blur to finish
+    textarea.addEventListener('keydown', handleInputKeyDown);
+    textarea.addEventListener('click', (e) => {
+        e.stopPropagation();
+        textarea.focus();
+    });
+
+    document.body.appendChild(textarea);
+    activeTextInput = textarea;
+
+    // Delay focus and initial size adjustment
+    setTimeout(() => {
+        textarea.focus();
+        textarea.select(); // Select existing text
+        // Trigger initial height adjustment
+        textarea.style.height = 'auto';
+        textarea.style.height = `${textarea.scrollHeight}px`;
+    }, 0);
+    console.log('Textarea element created for editing, focusing shortly.');
+}
+
 
 function handleInputBlur(event) {
     console.log('Text input blurred.');
@@ -1089,54 +1180,71 @@ function handleInputKeyDown(event) {
     // Stop the event from bubbling up to global listeners (like the delete key listener)
     event.stopPropagation();
 
-    // Let the input field handle most keys normally (typing)
-    if (event.key === 'Enter') {
-        console.log('Enter pressed in text input.');
-        event.preventDefault(); // ONLY prevent default for Enter
-        finishTextInput(event.target, true); // Add shape
-    } else if (event.key === 'Escape') {
-        console.log('Escape pressed in text input.');
+    // Let the textarea handle most keys normally (typing, including Enter for newlines)
+    if (event.key === 'Escape') {
+        console.log('Escape pressed in textarea.');
         // No preventDefault needed for Escape
         finishTextInput(event.target, false); // Cancel (don't add shape)
     }
+    // Removed the Enter key handler - Enter now creates a newline
     // For all other keys, allow default typing behavior by not doing anything else
 }
 
 function finishTextInput(inputElement, addShape) {
     if (!inputElement || inputElement !== activeTextInput) return; // Safety check
 
-    const text = inputElement.value.trim();
+    const text = inputElement.value; // Don't trim() here
 
-    if (addShape && text) {
-        // Get position from the input element's style (relative to viewport)
-        // and convert back to canvas coordinates
-        const canvasRect = canvas.getBoundingClientRect();
-        const inputRect = inputElement.getBoundingClientRect();
-        const canvasX = inputRect.left - canvasRect.left;
-        const canvasY = inputRect.top - canvasRect.top;
+    if (editingTextShape) { // Check if we are editing an existing shape
+        if (addShape && text.trim()) {
+            // Update the existing shape
+            editingTextShape.text = text;
+            editingTextShape.updateDimensions(); // Recalculate dimensions
+            shapes.push(editingTextShape); // Add the updated shape back
+            console.log('Updated text shape:', editingTextShape);
+            selectedShape = editingTextShape; // Reselect the edited shape
+            saveState();
+        } else {
+            // Edit cancelled or text cleared, put the original shape back
+            shapes.push(editingTextShape); // Add the original shape back unmodified
+            console.log('Text edit cancelled or cleared, restoring original shape.');
+            selectedShape = editingTextShape; // Reselect the original shape
+        }
+        editingTextShape = null; // Clear the editing state
+    } else { // Creating a new shape
+        if (addShape && text.trim()) { // Only add if there's non-whitespace content
+            // Get position from the textarea element's style (relative to viewport)
+            // and convert back to canvas coordinates
+            const canvasRect = canvas.getBoundingClientRect();
+            const inputRect = inputElement.getBoundingClientRect();
+            const canvasX = inputRect.left - canvasRect.left;
+            const canvasY = inputRect.top - canvasRect.top;
 
-        // Create the Text shape
-        const newTextShape = new Text(canvasX, canvasY, text, currentColor || '#000000'); // Use current color or black
-        shapes.push(newTextShape);
-        console.log('Added new text shape:', newTextShape);
-        saveState();
-        redrawCanvas();
-    } else {
-        console.log('Text input cancelled or empty.');
+            // Create the Text shape
+            const newTextShape = new Text(canvasX, canvasY, text, currentColor || '#000000'); // Use current color or black
+            shapes.push(newTextShape);
+            console.log('Added new text shape:', newTextShape);
+            selectedShape = newTextShape; // Select the newly created shape
+            saveState();
+        } else {
+            console.log('New text input cancelled or empty.');
+        }
     }
 
     // Cleanup
-    inputElement.removeEventListener('blur', handleInputBlur); // Match restoration above
+    inputElement.removeEventListener('blur', handleInputBlur);
     inputElement.removeEventListener('keydown', handleInputKeyDown);
-    // Find the click listener to remove it (more robust than assuming it exists)
-    // Note: getEventListeners is browser-specific, might not work reliably everywhere, but good for debugging
-    const clickListener = Array.from(inputElement.getEventListeners?.('click') || []).find(l => l.listener.toString().includes('input.focus()'));
+    inputElement.removeEventListener('input', () => {}); // Remove the auto-resize listener (find a better way if needed)
+    // Find the click listener to remove it
+    const clickListener = Array.from(inputElement.getEventListeners?.('click') || []).find(l => l.listener.toString().includes('textarea.focus()'));
     if (clickListener) {
         inputElement.removeEventListener('click', clickListener.listener);
     }
     document.body.removeChild(inputElement);
     activeTextInput = null;
-    console.log('Text input element removed.');
+    editingTextShape = null; // Ensure this is cleared on cleanup too
+    console.log('Textarea element removed.');
+    redrawCanvas(); // Redraw canvas after finishing input/edit
 
     // DO NOT reset tool here; it should remain 'text' until explicitly changed
     // setActiveTool('default'); // REMOVED THIS LINE
@@ -1166,19 +1274,18 @@ canvas.addEventListener('dblclick', (e) => {
     }
 
     if (clickedTextShape) {
-        console.log('Editing text:', clickedTextShape);
-        const newText = prompt("Edit text:", clickedTextShape.text);
-        if (newText !== null && newText !== clickedTextShape.text) { // Only update if text changed and not cancelled
-            clickedTextShape.text = newText;
-            clickedTextShape.updateDimensions(); // Recalculate width/height
-            redrawCanvas();
-            saveState(); // Save the change
-            console.log('Text updated to:', newText);
-        } else if (newText === null) {
-            console.log('Text edit cancelled.');
-        } else {
-            console.log('Text not changed.');
+        console.log('Editing text shape:', clickedTextShape);
+        // Instead of prompt, reuse the textarea mechanism for editing
+        // Remove the old shape temporarily
+        const index = shapes.indexOf(clickedTextShape);
+        if (index > -1) {
+            shapes.splice(index, 1);
         }
+        selectedShape = null; // Deselect while editing
+        redrawCanvas(); // Redraw without the shape being edited
+
+        // Start a new textarea at the shape's position, pre-filled with its text
+        startTextInputForEditing(clickedTextShape);
     }
 });
 // ----------------------------------------------------
