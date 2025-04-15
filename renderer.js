@@ -130,6 +130,8 @@ class Shape {
         this.y = y;
         this.color = color;
         this.angle = 0; // NEW: Rotation angle in radians
+        this.flipH = false; // NEW: Horizontal flip state
+        this.flipV = false; // NEW: Vertical flip state
         this.id = Date.now() + Math.random(); // Simple unique ID
     }
     // Abstract methods
@@ -142,8 +144,11 @@ class Shape {
     clone() {
         // Basic clone, ensure subclasses override if they have non-primitive properties
         const cloned = Object.assign(Object.create(Object.getPrototypeOf(this)), this);
-        // Ensure angle is copied (it's primitive, so Object.assign works, but good practice)
+        // Ensure angle is copied
         cloned.angle = this.angle;
+        // NEW: Ensure flip states are copied
+        cloned.flipH = this.flipH;
+        cloned.flipV = this.flipV;
         return cloned;
     }
 
@@ -171,27 +176,54 @@ class Rectangle extends Shape {
         const center = this.getCenter();
         ctx.save(); // Save context state
         ctx.translate(center.x, center.y); // Translate to center
-        ctx.rotate(this.angle); // Rotate
-        ctx.translate(-center.x, -center.y); // Translate back
+        // Apply flip BEFORE rotation for standard mirror effect
+        ctx.scale(this.flipH ? -1 : 1, this.flipV ? -1 : 1);
+        ctx.rotate(this.angle); // Rotate the flipped context
 
-        // Draw relative to original top-left (this.x, this.y)
-        // Only fill if color is not null
+        // Draw the rectangle centered at the NEW origin (0,0)
+        const halfW = this.width / 2;
+        const halfH = this.height / 2;
+
         if (this.color) {
             ctx.fillStyle = this.color;
-            ctx.fillRect(this.x, this.y, this.width, this.height);
+            ctx.fillRect(-halfW, -halfH, this.width, this.height); // Draw centered
         }
-        ctx.strokeStyle = '#000000'; // Always draw border
+        ctx.strokeStyle = '#000000';
         ctx.lineWidth = 1;
-        ctx.strokeRect(this.x, this.y, this.width, this.height);
+        ctx.strokeRect(-halfW, -halfH, this.width, this.height); // Draw centered
 
-        ctx.restore(); // Restore context state
+        ctx.restore(); // Restore context state (removes translate, rotate, scale)
     }
 
     isInside(mouseX, mouseY) {
-        // TODO: Improve this for rotated shapes. Currently uses axis-aligned bounding box.
-        // For now, keep the simple check. Accurate check requires transforming mouse coords.
-        return mouseX >= this.x && mouseX <= this.x + this.width &&
-               mouseY >= this.y && mouseY <= this.y + this.height;
+        const center = this.getCenter();
+        const angle = this.angle;
+        const cos = Math.cos(-angle); // Use negative angle for inverse rotation
+        const sin = Math.sin(-angle);
+
+        // 1. Translate mouse coordinates so the shape's center is the origin
+        let translatedX = mouseX - center.x;
+        let translatedY = mouseY - center.y;
+
+        // 2. Apply inverse flip (scale)
+        // Note: Scaling by -1 is its own inverse
+        const scaleX = this.flipH ? -1 : 1;
+        const scaleY = this.flipV ? -1 : 1;
+        translatedX /= scaleX;
+        translatedY /= scaleY;
+
+
+        // 3. Apply inverse rotation
+        const rotatedX = translatedX * cos - translatedY * sin;
+        const rotatedY = translatedX * sin + translatedY * cos;
+
+        // 4. Check if the transformed point is within the un-transformed bounding box
+        //    The bounding box is centered at (0,0) in this translated/rotated space
+        const halfW = this.width / 2;
+        const halfH = this.height / 2;
+
+        return rotatedX >= -halfW && rotatedX <= halfW &&
+               rotatedY >= -halfH && rotatedY <= halfH;
     }
 
     getHandles() {
@@ -218,13 +250,23 @@ class Rectangle extends Shape {
             { relX: 0,     relY: -halfH - rotationHandleOffset, type: 'rotation' }
         ];
 
-        // Rotate each handle position around the center
+        // Apply flip, then rotate each handle position around the center
+        const scaleX = this.flipH ? -1 : 1;
+        const scaleY = this.flipV ? -1 : 1;
+
         return unrotatedHandles.map(handle => {
-            const rotatedX = handle.relX * cos - handle.relY * sin;
-            const rotatedY = handle.relX * sin + handle.relY * cos;
+            // 1. Apply flip to relative coordinates
+            const flippedX = handle.relX * scaleX;
+            const flippedY = handle.relY * scaleY;
+
+            // 2. Apply rotation to flipped coordinates
+            const rotatedX = flippedX * cos - flippedY * sin;
+            const rotatedY = flippedX * sin + flippedY * cos;
+
+            // 3. Translate to absolute position and adjust for handle size
             return {
-                x: center.x + rotatedX - handleOffset, // Adjust for handle size
-                y: center.y + rotatedY - handleOffset, // Adjust for handle size
+                x: center.x + rotatedX - handleOffset,
+                y: center.y + rotatedY - handleOffset,
                 type: handle.type
             };
         });
@@ -247,22 +289,22 @@ class Circle extends Shape {
         const center = this.getCenter(); // Which is just { x: this.x, y: this.y }
         ctx.save();
         ctx.translate(center.x, center.y);
-        ctx.rotate(this.angle); // Circles look the same rotated, but handles will rotate
-        ctx.translate(-center.x, -center.y);
+        // Apply flip BEFORE rotation
+        ctx.scale(this.flipH ? -1 : 1, this.flipV ? -1 : 1);
+        ctx.rotate(this.angle); // Rotate the flipped context
 
-        // Draw centered at original this.x, this.y
+        // Draw the circle centered at the NEW origin (0,0)
         ctx.beginPath();
-        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-        // Only fill if color is not null
+        ctx.arc(0, 0, this.radius, 0, Math.PI * 2); // Draw centered at (0,0)
         if (this.color) {
             ctx.fillStyle = this.color;
             ctx.fill();
         }
-        ctx.strokeStyle = '#000000'; // Always draw border
+        ctx.strokeStyle = '#000000';
         ctx.lineWidth = 1;
         ctx.stroke();
 
-        ctx.restore();
+        ctx.restore(); // Restore context state (removes translate, rotate, scale)
     }
 
     isInside(mouseX, mouseY) {
@@ -296,13 +338,23 @@ class Circle extends Shape {
             { relX: 0,  relY: -r - rotationHandleOffset, type: 'rotation' }
         ];
 
-        // Rotate each handle position around the center
+        // Apply flip, then rotate each handle position around the center
+        const scaleX = this.flipH ? -1 : 1;
+        const scaleY = this.flipV ? -1 : 1;
+
         return unrotatedHandles.map(handle => {
-            const rotatedX = handle.relX * cos - handle.relY * sin;
-            const rotatedY = handle.relX * sin + handle.relY * cos;
+            // 1. Apply flip to relative coordinates
+            const flippedX = handle.relX * scaleX;
+            const flippedY = handle.relY * scaleY;
+
+            // 2. Apply rotation to flipped coordinates
+            const rotatedX = flippedX * cos - flippedY * sin;
+            const rotatedY = flippedX * sin + flippedY * cos;
+
+            // 3. Translate to absolute position and adjust for handle size
             return {
-                x: center.x + rotatedX - handleOffset, // Adjust for handle size
-                y: center.y + rotatedY - handleOffset, // Adjust for handle size
+                x: center.x + rotatedX - handleOffset,
+                y: center.y + rotatedY - handleOffset,
                 type: handle.type
             };
         });
@@ -325,33 +377,72 @@ class Diamond extends Shape {
         const center = this.getCenter();
         ctx.save();
         ctx.translate(center.x, center.y);
-        ctx.rotate(this.angle);
-        ctx.translate(-center.x, -center.y);
+        // Apply flip BEFORE rotation
+        ctx.scale(this.flipH ? -1 : 1, this.flipV ? -1 : 1);
+        ctx.rotate(this.angle); // Rotate the flipped context
 
-        // Draw relative to original top-left (this.x, this.y)
+        // Draw the diamond centered at the NEW origin (0,0)
+        const halfW = this.width / 2;
+        const halfH = this.height / 2;
         ctx.beginPath();
-        ctx.moveTo(this.x + this.width / 2, this.y); // Top point
-        ctx.lineTo(this.x + this.width, this.y + this.height / 2); // Right point
-        ctx.lineTo(this.x + this.width / 2, this.y + this.height); // Bottom point
-        ctx.lineTo(this.x, this.y + this.height / 2); // Left point
+        ctx.moveTo(0, -halfH);      // Top point (relative to center)
+        ctx.lineTo(halfW, 0);       // Right point
+        ctx.lineTo(0, halfH);       // Bottom point
+        ctx.lineTo(-halfW, 0);      // Left point
         ctx.closePath();
-        // Only fill if color is not null
+
         if (this.color) {
             ctx.fillStyle = this.color;
             ctx.fill();
         }
-        ctx.strokeStyle = '#000000'; // Always draw border
+        ctx.strokeStyle = '#000000';
         ctx.lineWidth = 1;
         ctx.stroke();
 
-        ctx.restore();
+        ctx.restore(); // Restore context state (removes translate, rotate, scale)
     }
 
     isInside(mouseX, mouseY) {
-        // TODO: Improve this for rotated shapes. Currently uses axis-aligned bounding box.
-        // For now, keep the simple check. Accurate check requires transforming mouse coords.
-        return mouseX >= this.x && mouseX <= this.x + this.width &&
-               mouseY >= this.y && mouseY <= this.y + this.height;
+        const center = this.getCenter();
+        const angle = this.angle;
+        const cos = Math.cos(-angle); // Use negative angle for inverse rotation
+        const sin = Math.sin(-angle);
+
+        // 1. Translate mouse coordinates so the shape's center is the origin
+        let translatedX = mouseX - center.x;
+        let translatedY = mouseY - center.y;
+
+        // 2. Apply inverse flip (scale)
+        const scaleX = this.flipH ? -1 : 1;
+        const scaleY = this.flipV ? -1 : 1;
+        translatedX /= scaleX;
+        translatedY /= scaleY;
+
+        // 3. Apply inverse rotation
+        const rotatedX = translatedX * cos - translatedY * sin;
+        const rotatedY = translatedX * sin + translatedY * cos;
+
+        // 4. Check if the transformed point is within the un-transformed diamond shape
+        //    The diamond points relative to the center (0,0) are:
+        //    (0, -h/2), (w/2, 0), (0, h/2), (-w/2, 0)
+        //    We can check if the point is within the polygon defined by these vertices.
+        //    A simpler check for diamonds (and rectangles) is to check against the bounding box
+        //    in the transformed space, which we already did for Rectangle.
+        const halfW = this.width / 2;
+        const halfH = this.height / 2;
+
+        // Check if the point is within the bounding box in the rotated/scaled space
+        if (rotatedX < -halfW || rotatedX > halfW || rotatedY < -halfH || rotatedY > halfH) {
+            return false; // Outside the bounding box, definitely not inside the diamond
+        }
+
+        // More precise check: Check if the point is within the diamond shape using line equations
+        // The diamond edges pass through: (0, -h/2), (w/2, 0), (0, h/2), (-w/2, 0)
+        // Equation for line segment: y - y1 = m(x - x1)
+        // Or check using sum of distances or winding number, but simpler for diamond:
+        // Check if |x / (w/2)| + |y / (h/2)| <= 1
+        // This equation defines the boundary of a diamond centered at the origin.
+        return (Math.abs(rotatedX) / halfW) + (Math.abs(rotatedY) / halfH) <= 1;
     }
 
      // Use bounding box for handles, similar to Rectangle
@@ -380,13 +471,23 @@ class Diamond extends Shape {
             { relX: 0,     relY: -halfH - rotationHandleOffset, type: 'rotation' }
         ];
 
-        // Rotate each handle position around the center
+        // Apply flip, then rotate each handle position around the center
+        const scaleX = this.flipH ? -1 : 1;
+        const scaleY = this.flipV ? -1 : 1;
+
         return unrotatedHandles.map(handle => {
-            const rotatedX = handle.relX * cos - handle.relY * sin;
-            const rotatedY = handle.relX * sin + handle.relY * cos;
+            // 1. Apply flip to relative coordinates
+            const flippedX = handle.relX * scaleX;
+            const flippedY = handle.relY * scaleY;
+
+            // 2. Apply rotation to flipped coordinates
+            const rotatedX = flippedX * cos - flippedY * sin;
+            const rotatedY = flippedX * sin + flippedY * cos;
+
+            // 3. Translate to absolute position and adjust for handle size
             return {
-                x: center.x + rotatedX - handleOffset, // Adjust for handle size
-                y: center.y + rotatedY - handleOffset, // Adjust for handle size
+                x: center.x + rotatedX - handleOffset,
+                y: center.y + rotatedY - handleOffset,
                 type: handle.type
             };
         });
@@ -780,8 +881,10 @@ function redrawCanvas() {
         // --- Draw Rotated Selection Highlight ---
         ctx.save(); // Save the zoomed/panned state
         ctx.translate(center.x, center.y); // Translate origin to shape center
-        ctx.rotate(angle); // Rotate around shape center
-        ctx.translate(-center.x, -center.y); // Translate origin back
+        // Apply flip BEFORE rotation for highlight
+        ctx.scale(selectedShape.flipH ? -1 : 1, selectedShape.flipV ? -1 : 1);
+        ctx.rotate(angle); // Rotate the flipped context
+        // DO NOT translate back here. Draw relative to the new (0,0) center.
 
         // Styles are affected by zoom, adjust line width if needed
         const scaledLineWidth = 2 / zoomLevel; // Make highlight consistent thickness visually
@@ -793,35 +896,39 @@ function redrawCanvas() {
         ctx.lineWidth = scaledLineWidth;
         ctx.setLineDash([5 / zoomLevel, 3 / zoomLevel]); // Scale dash pattern
 
-        // Draw highlight based on shape type (using shape's own coords)
+        // Draw highlight based on shape type, centered at (0,0) in the transformed space
         if (selectedShape instanceof Rectangle) {
-             ctx.strokeRect(selectedShape.x, selectedShape.y, selectedShape.width, selectedShape.height);
-         } else if (selectedShape instanceof Circle) {
-             ctx.beginPath();
-             // Draw the circle centered at its x,y (which is its center)
-             ctx.arc(selectedShape.x, selectedShape.y, selectedShape.radius, 0, Math.PI * 2);
-             ctx.stroke();
-         } else if (selectedShape instanceof Diamond) {
-             ctx.beginPath();
-             ctx.moveTo(selectedShape.x + selectedShape.width / 2, selectedShape.y);
-             ctx.lineTo(selectedShape.x + selectedShape.width, selectedShape.y + selectedShape.height / 2);
-             ctx.lineTo(selectedShape.x + selectedShape.width / 2, selectedShape.y + selectedShape.height);
-             ctx.lineTo(selectedShape.x, selectedShape.y + selectedShape.height / 2);
-             ctx.closePath();
-             ctx.stroke();
-         } else if (selectedShape instanceof Text) {
-             // Text highlight doesn't need rotation logic within this save/restore block
-             // We draw it after restoring the context from rotation
-         }
-         // Lines don't get highlight box
+            const halfW = selectedShape.width / 2;
+            const halfH = selectedShape.height / 2;
+            ctx.strokeRect(-halfW, -halfH, selectedShape.width, selectedShape.height);
+        } else if (selectedShape instanceof Circle) {
+            ctx.beginPath();
+            ctx.arc(0, 0, selectedShape.radius, 0, Math.PI * 2); // Centered at (0,0)
+            ctx.stroke();
+        } else if (selectedShape instanceof Diamond) {
+            const halfW = selectedShape.width / 2;
+            const halfH = selectedShape.height / 2;
+            ctx.beginPath();
+            ctx.moveTo(0, -halfH);      // Top point (relative to center)
+            ctx.lineTo(halfW, 0);       // Right point
+            ctx.lineTo(0, halfH);       // Bottom point
+            ctx.lineTo(-halfW, 0);      // Left point
+            ctx.closePath();
+            ctx.stroke();
+        }
+        // Lines and Text don't get highlight box drawn within this rotated/scaled context
 
-         // Restore context from shape rotation
-         ctx.restore(); // Back to just zoomed/panned state
+        // Restore context from shape rotation/scale/translation-to-center
+        ctx.restore(); // Back to just zoomed/panned state
 
-         // Draw Text highlight (no rotation applied)
-         if (selectedShape instanceof Text) {
-             ctx.strokeRect(selectedShape.x, selectedShape.y, selectedShape.width, selectedShape.height);
-         }
+        // Draw Text highlight (no rotation/flip applied to highlight itself)
+        if (selectedShape instanceof Text) {
+            // Apply zoom scaling to the highlight stroke
+            ctx.strokeStyle = 'blue';
+            ctx.lineWidth = scaledLineWidth;
+            ctx.setLineDash([5 / zoomLevel, 3 / zoomLevel]);
+            ctx.strokeRect(selectedShape.x, selectedShape.y, selectedShape.width, selectedShape.height);
+        }
 
         ctx.setLineDash([]); // Reset line dash
         // --- End Selection Highlight ---
@@ -829,7 +936,7 @@ function redrawCanvas() {
 
         // --- Draw Handles (adjust size and position based on zoom) ---
         // Get handles based on UNZOOMED size, then draw them scaled
-        const handles = selectedShape.getHandles(); // These coords are in canvas space
+        const handles = selectedShape.getHandles(); // These coords are in canvas space (already account for flip/rotation)
         if (handles.length > 0) {
              ctx.fillStyle = 'white';
              ctx.strokeStyle = 'black';
@@ -1875,3 +1982,31 @@ window.electronAPI.onRedo(redo);
 // The listener for onRequestSave is already defined above (around line 1758)
 window.electronAPI.onCopyCanvas(handleCopyCanvas); // Listen for copy command
 window.electronAPI.onPasteCanvas(handlePasteCanvas); // Listen for paste command
+
+// --- NEW: Flip Button Event Listeners ---
+const flipHorizontalButton = document.getElementById('flipHorizontalButton');
+const flipVerticalButton = document.getElementById('flipVerticalButton');
+
+if (flipHorizontalButton) {
+    flipHorizontalButton.addEventListener('click', () => {
+        if (selectedShape) {
+            saveState(); // Save state before modification
+            selectedShape.flipH = !selectedShape.flipH;
+            redrawCanvas();
+        }
+    });
+} else {
+    console.error("Flip Horizontal button not found!");
+}
+
+if (flipVerticalButton) {
+    flipVerticalButton.addEventListener('click', () => {
+        if (selectedShape) {
+            saveState(); // Save state before modification
+            selectedShape.flipV = !selectedShape.flipV;
+            redrawCanvas();
+        }
+    });
+} else {
+    console.error("Flip Vertical button not found!");
+}
