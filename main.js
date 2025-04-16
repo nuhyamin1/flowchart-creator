@@ -34,6 +34,52 @@ function createWindow () {
   });
   // -----------------------------------------
 
+  // --- NEW: Handle request to open an image file ---
+  ipcMain.handle('dialog:openImage', async () => {
+    try {
+      const result = await dialog.showOpenDialog(mainWindow, {
+        title: 'Select Image',
+        properties: ['openFile'],
+        filters: [
+          { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'svg'] }
+        ]
+      });
+
+      if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
+        console.log('Image selection cancelled.');
+        return { success: false, error: 'No file selected' };
+      }
+
+      const filePath = result.filePaths[0];
+      const fileExtension = path.extname(filePath).toLowerCase();
+      let mimeType = '';
+
+      // Determine MIME type based on extension
+      switch (fileExtension) {
+        case '.png': mimeType = 'image/png'; break;
+        case '.jpg':
+        case '.jpeg': mimeType = 'image/jpeg'; break;
+        case '.gif': mimeType = 'image/gif'; break;
+        case '.svg': mimeType = 'image/svg+xml'; break;
+        default:
+          console.error(`Unsupported image type: ${fileExtension}`);
+          return { success: false, error: `Unsupported image type: ${fileExtension}` };
+      }
+
+      const fileContent = await fs.promises.readFile(filePath);
+      const base64Data = fileContent.toString('base64');
+      const dataUrl = `data:${mimeType};base64,${base64Data}`;
+
+      console.log(`Image loaded: ${filePath}, Data URL length: ${dataUrl.length}`);
+      return { success: true, dataUrl: dataUrl };
+
+    } catch (error) {
+      console.error('Failed to open or read image file:', error);
+      return { success: false, error: error.message };
+    }
+  });
+  // ---------------------------------------------
+
   // Load the index.html of the app.
   mainWindow.loadFile('index.html');
 

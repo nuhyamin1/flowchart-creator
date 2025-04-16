@@ -92,6 +92,14 @@ function setActiveTool(toolType) {
     } else if (toolType === 'text') { // NEW: Text tool cursor
         canvas.style.cursor = 'text';
         currentCursor = 'text';
+    } else if (toolType === 'image') { // NEW: Image tool
+        canvas.style.cursor = 'progress'; // Indicate loading briefly
+        currentCursor = 'progress';
+        // Trigger file selection immediately
+        triggerImageSelection(); // We'll define this function next
+        // Note: We don't immediately deselect shape here.
+        // The tool will be reset to 'default' after image selection completes.
+        return; // Prevent further deselection logic for image tool itself
     } else { // default or other tools
         canvas.style.cursor = 'default';
         currentCursor = 'default';
@@ -714,7 +722,180 @@ class Text extends Shape {
         delete cloned.angle; // Text doesn't use angle property
         return cloned;
     }
+} // <-- CORRECTED BRACE
+
+// --- NEW: Image Shape Class ---
+class ImageShape extends Shape {
+    constructor(x, y, width, height, dataUrl) {
+        super(x, y, null); // Images don't use the 'color' property for fill
+        this.width = Math.max(width, handleSize * 2);
+        this.height = Math.max(height, handleSize * 2);
+        this.dataUrl = dataUrl;
+        this.type = 'image';
+        this.imageElement = new Image();
+        this.isLoaded = false;
+        this.isLoading = true;
+        this.loadError = false;
+
+        // Start loading the image
+        this.imageElement.onload = () => {
+            console.log(`Image loaded successfully: ${this.dataUrl.substring(0, 50)}...`);
+            this.isLoaded = true;
+            this.isLoading = false;
+            // Adjust initial width/height based on image aspect ratio if desired
+            // For now, we use the provided width/height
+            redrawCanvas(); // Redraw canvas once image is loaded
+        };
+        this.imageElement.onerror = (err) => {
+            console.error('Error loading image:', err, this.dataUrl.substring(0, 50));
+            this.isLoading = false;
+            this.loadError = true;
+            redrawCanvas(); // Redraw to potentially show an error state
+        };
+        this.imageElement.src = this.dataUrl;
+    }
+
+    getCenter() {
+        return { x: this.x + this.width / 2, y: this.y + this.height / 2 };
+    }
+
+    draw(ctx) {
+        if (this.isLoading) {
+            // Optional: Draw a placeholder while loading
+            ctx.save();
+            ctx.strokeStyle = '#cccccc';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(this.x, this.y, this.width, this.height);
+            ctx.fillStyle = '#f0f0f0';
+            ctx.fillRect(this.x, this.y, this.width, this.height);
+            ctx.fillStyle = '#aaaaaa';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.font = '12px Arial';
+            ctx.fillText('Loading...', this.x + this.width / 2, this.y + this.height / 2);
+            ctx.restore();
+            return;
+        }
+        if (this.loadError) {
+            // Optional: Draw an error indicator
+            ctx.save();
+            ctx.strokeStyle = 'red';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(this.x, this.y, this.width, this.height);
+            ctx.fillStyle = '#ffeeee';
+            ctx.fillRect(this.x, this.y, this.width, this.height);
+            ctx.fillStyle = 'red';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.font = 'bold 12px Arial';
+            ctx.fillText('Error!', this.x + this.width / 2, this.y + this.height / 2);
+            ctx.restore();
+            return;
+        }
+        if (!this.isLoaded) return; // Should not happen if not loading/error, but safety check
+
+        const center = this.getCenter();
+        ctx.save();
+        ctx.translate(center.x, center.y);
+        // Apply flip BEFORE rotation
+        ctx.scale(this.flipH ? -1 : 1, this.flipV ? -1 : 1);
+        ctx.rotate(this.angle);
+
+        // Draw the image centered at the NEW origin (0,0)
+        const halfW = this.width / 2;
+        const halfH = this.height / 2;
+        try {
+            ctx.drawImage(this.imageElement, -halfW, -halfH, this.width, this.height);
+        } catch (e) {
+            // Catch potential errors if image becomes invalid after load? Unlikely but safe.
+            console.error("Error drawing image:", e);
+            // Optionally draw error state here too
+        }
+
+        ctx.restore(); // Restore context state
+    }
+
+    // Use simple bounding box check, same as Rectangle
+    isInside(mouseX, mouseY) {
+        const center = this.getCenter();
+        const angle = this.angle;
+        const cos = Math.cos(-angle); // Inverse rotation
+        const sin = Math.sin(-angle);
+
+        let translatedX = mouseX - center.x;
+        let translatedY = mouseY - center.y;
+
+        // Inverse flip
+        const scaleX = this.flipH ? -1 : 1;
+        const scaleY = this.flipV ? -1 : 1;
+        translatedX /= scaleX;
+        translatedY /= scaleY;
+
+        // Inverse rotate
+        const rotatedX = translatedX * cos - translatedY * sin;
+        const rotatedY = translatedX * sin + translatedY * cos;
+
+        const halfW = this.width / 2;
+        const halfH = this.height / 2;
+
+        return rotatedX >= -halfW && rotatedX <= halfW &&
+               rotatedY >= -halfH && rotatedY <= halfH;
+    }
+
+    // Use handles similar to Rectangle
+    getHandles() {
+        const center = this.getCenter();
+        const angle = this.angle;
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
+        const halfW = this.width / 2;
+        const halfH = this.height / 2;
+        const handleOffset = handleSize / 2;
+        const rotationHandleOffset = 20;
+
+        const unrotatedHandles = [
+            { relX: -halfW, relY: -halfH, type: 'top-left' },
+            { relX: 0,     relY: -halfH, type: 'top-center' },
+            { relX: halfW, relY: -halfH, type: 'top-right' },
+            { relX: -halfW, relY: 0,      type: 'middle-left' },
+            { relX: halfW, relY: 0,      type: 'middle-right' },
+            { relX: -halfW, relY: halfH, type: 'bottom-left' },
+            { relX: 0,     relY: halfH, type: 'bottom-center' },
+            { relX: halfW, relY: halfH, type: 'bottom-right' },
+            { relX: 0,     relY: -halfH - rotationHandleOffset, type: 'rotation' }
+        ];
+
+        const scaleX = this.flipH ? -1 : 1;
+        const scaleY = this.flipV ? -1 : 1;
+
+        return unrotatedHandles.map(handle => {
+            const flippedX = handle.relX * scaleX;
+            const flippedY = handle.relY * scaleY;
+            const rotatedX = flippedX * cos - flippedY * sin;
+            const rotatedY = flippedX * sin + flippedY * cos;
+            return {
+                x: center.x + rotatedX - handleOffset,
+                y: center.y + rotatedY - handleOffset,
+                type: handle.type
+            };
+        });
+    }
+
+    clone() {
+        // Create a new instance, passing the essential data
+        const cloned = new ImageShape(this.x, this.y, this.width, this.height, this.dataUrl);
+        // Copy state properties
+        cloned.angle = this.angle;
+        cloned.flipH = this.flipH;
+        cloned.flipV = this.flipV;
+        cloned.id = this.id; // Keep original ID for history tracking? Or generate new? Let's keep for now.
+        // Note: The imageElement itself is not deeply cloned, but the constructor
+        // will create a new Image element and start loading from the dataUrl.
+        // The loaded state (isLoaded, isLoading, loadError) will be managed by the new instance.
+        return cloned;
+    }
 }
+// --- END: Image Shape Class ---
 
 
 // --- NEW Helper Function to get handle at mouse position ---
@@ -927,6 +1108,10 @@ function redrawCanvas() {
             ctx.lineTo(-halfW, 0);      // Left point
             ctx.closePath();
             ctx.stroke();
+        } else if (selectedShape instanceof ImageShape) { // NEW: Highlight for ImageShape
+            const halfW = selectedShape.width / 2;
+            const halfH = selectedShape.height / 2;
+            ctx.strokeRect(-halfW, -halfH, selectedShape.width, selectedShape.height);
         }
         // Lines and Text don't get highlight box drawn within this rotated/scaled context
 
@@ -1253,6 +1438,9 @@ canvas.addEventListener('mousedown', (e) => {
             startTextInput(mouseX, mouseY); // Pass canvas coords
             e.stopPropagation();
             // State saved/redrawn when input finishes
+        } else if (currentShapeType === 'image') {
+            // Do nothing on mousedown if image tool is selected - handled by setActiveTool/triggerImageSelection
+            console.log('Image tool selected, waiting for file dialog.');
         } else {
              // Clicked background with default/line tool, or text tool already active
              console.log(`Clicked background with ${currentShapeType} tool, deselected shape.`);
@@ -1260,6 +1448,54 @@ canvas.addEventListener('mousedown', (e) => {
         }
     }
 }); // End mousedown listener
+
+
+// --- NEW: Function to handle Image Tool Selection ---
+async function triggerImageSelection() {
+    console.log('Image tool selected, opening dialog...');
+    try {
+        const result = await window.electronAPI.openImageDialog();
+        if (result.success && result.dataUrl) {
+            console.log('Image data received from main process.');
+            // Create an in-memory image to get dimensions
+            const tempImg = new Image();
+            tempImg.onload = () => {
+                // Place the image near the center of the current view
+                const viewCenterX = (canvas.width / 2 - offsetX) / zoomLevel;
+                const viewCenterY = (canvas.height / 2 - offsetY) / zoomLevel;
+                const imgWidth = tempImg.naturalWidth || 100; // Default size if naturalWidth fails
+                const imgHeight = tempImg.naturalHeight || 100;
+                const imgX = viewCenterX - imgWidth / 2;
+                const imgY = viewCenterY - imgHeight / 2;
+
+                const newImageShape = new ImageShape(imgX, imgY, imgWidth, imgHeight, result.dataUrl);
+                shapes.push(newImageShape);
+                selectedShape = newImageShape; // Select the new image
+                console.log('Added new image shape:', newImageShape);
+                saveState();
+                redrawCanvas(); // Redraw to show the new image (or its loading state)
+                setActiveTool('default'); // Switch back to default tool after adding
+            };
+            tempImg.onerror = () => {
+                console.error('Failed to load temporary image for dimensions.');
+                alert('Failed to load image dimensions.');
+                setActiveTool('default'); // Switch back to default tool on error
+            };
+            tempImg.src = result.dataUrl;
+
+        } else {
+            console.log('Image selection failed or cancelled:', result.error);
+            // If selection was cancelled or failed, just switch back to default tool
+            setActiveTool('default');
+        }
+    } catch (error) {
+        console.error('Error during image selection process:', error);
+        alert(`Error selecting image: ${error.message}`);
+        setActiveTool('default'); // Switch back to default tool on error
+    }
+}
+// --- END: Image Tool Selection ---
+
 
 // --- NEW: Functions for Inline Text Input ---
 

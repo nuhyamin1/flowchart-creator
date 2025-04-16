@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld(
     saveDialog: (filter) => ipcRenderer.invoke('dialog:showSaveDialog', filter),
     writeFile: (filePath, data) => ipcRenderer.invoke('fs:writeFile', filePath, data),
     getSystemFonts: () => ipcRenderer.invoke('get-system-fonts'), // <-- ADDED
+    openImageDialog: () => ipcRenderer.invoke('dialog:openImage'), // <-- ADDED for image opening
 
     // Main to Renderer (Send/On) - Expose a listener function
     onUndo: (callback) => ipcRenderer.on('undo-action', (event, ...args) => callback(...args)),
