@@ -177,7 +177,8 @@ class Rectangle extends Shape {
         ctx.save(); // Save context state
         ctx.translate(center.x, center.y); // Translate to center
         // Apply flip BEFORE rotation for standard mirror effect
-        ctx.scale(this.flipH ? -1 : 1, this.flipV ? -1 : 1);
+        // Swap flip axes for Diamond so vertical and horizontal flips behave correctly
+ctx.scale(this.flipV ? -1 : 1, this.flipH ? -1 : 1);
         ctx.rotate(this.angle); // Rotate the flipped context
 
         // Draw the rectangle centered at the NEW origin (0,0)
@@ -290,7 +291,8 @@ class Circle extends Shape {
         ctx.save();
         ctx.translate(center.x, center.y);
         // Apply flip BEFORE rotation
-        ctx.scale(this.flipH ? -1 : 1, this.flipV ? -1 : 1);
+        // Swap flip axes for Diamond so vertical and horizontal flips behave correctly
+ctx.scale(this.flipV ? -1 : 1, this.flipH ? -1 : 1);
         ctx.rotate(this.angle); // Rotate the flipped context
 
         // Draw the circle centered at the NEW origin (0,0)
@@ -378,7 +380,8 @@ class Diamond extends Shape {
         ctx.save();
         ctx.translate(center.x, center.y);
         // Apply flip BEFORE rotation
-        ctx.scale(this.flipH ? -1 : 1, this.flipV ? -1 : 1);
+        // Swap flip axes for Diamond so vertical and horizontal flips behave correctly
+ctx.scale(this.flipV ? -1 : 1, this.flipH ? -1 : 1);
         ctx.rotate(this.angle); // Rotate the flipped context
 
         // Draw the diamond centered at the NEW origin (0,0)
@@ -508,13 +511,22 @@ class Line extends Shape {
     }
 
     draw(ctx) {
+        // Calculate the center of the line
+        const centerX = (this.x1 + this.x2) / 2;
+        const centerY = (this.y1 + this.y2) / 2;
+        ctx.save();
+        ctx.translate(centerX, centerY);
+        // Apply flip
+        ctx.scale(this.flipH ? -1 : 1, this.flipV ? -1 : 1);
+        // Draw the line centered at (0,0)
         ctx.beginPath();
-        ctx.moveTo(this.x1, this.y1);
-        ctx.lineTo(this.x2, this.y2);
+        ctx.moveTo(this.x1 - centerX, this.y1 - centerY);
+        ctx.lineTo(this.x2 - centerX, this.y2 - centerY);
         ctx.strokeStyle = this.color;
         ctx.lineWidth = 2;
         ctx.stroke();
         ctx.lineWidth = 1;
+        ctx.restore();
     }
 
     isInside(mouseX, mouseY) {
@@ -1992,6 +2004,7 @@ if (flipHorizontalButton) {
         if (selectedShape) {
             saveState(); // Save state before modification
             selectedShape.flipH = !selectedShape.flipH;
+            console.log('Horizontal flip:', selectedShape.flipH, 'Vertical flip:', selectedShape.flipV, selectedShape);
             redrawCanvas();
         }
     });
@@ -2004,6 +2017,7 @@ if (flipVerticalButton) {
         if (selectedShape) {
             saveState(); // Save state before modification
             selectedShape.flipV = !selectedShape.flipV;
+            console.log('Vertical flip:', selectedShape.flipV, 'Horizontal flip:', selectedShape.flipH, selectedShape);
             redrawCanvas();
         }
     });
